@@ -51,6 +51,7 @@ from . import journal
 from . import tidy as _tidy
 from . import voice
 from . import discern
+from . import hands
 from .context import Context
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the estate root
@@ -198,6 +199,27 @@ _RECALL = re.compile(r"\b(recall|what (?:did|have) you read|your readings|from t
 _TOPIC = re.compile(r"\b(tell me about|what do you know about|what can you tell me about|"
                     r"what have you (?:got|read) on|anything (?:about|on)|explain)\b", re.I)
 
+# an IMPERATIVE — the operator telling him to DO something. He performs it and
+# reports what happened. (Fed documents never reach here; only the operator's word.)
+_DO = re.compile(r"^\s*(?:please\s+)?(read|cat|show|open|print|"
+                 r"write|save|view|stat|list|ls|dir|"
+                 r"delete|remove|rm|trash|"
+                 r"run|exec|execute|shell|"
+                 r"eat|ingest|digest|absorb|"
+                 r"tidy|cleanup|clean|"
+                 r"verify|fsck|seal|"
+                 r"harvest|scrape|"
+                 r"fold|map|tree)\b", re.I)
+# fold the many spellings of one act into a single verb
+_CANON = {"cat": "read", "show": "read", "open": "read", "print": "read",
+          "save": "write", "stat": "view",
+          "dir": "ls", "list": "ls",
+          "remove": "delete", "rm": "delete", "trash": "delete",
+          "exec": "run", "execute": "run", "shell": "run",
+          "ingest": "eat", "digest": "eat", "absorb": "eat",
+          "cleanup": "tidy", "clean": "tidy",
+          "fsck": "verify", "scrape": "harvest", "tree": "map"}
+
 
 def _lone_word(x):
     x = x.strip()
@@ -259,14 +281,20 @@ class Steward:
             return "sum"
         if _CANDO.match(x) or _SELF.search(x):
             return "self"                        # about himself — capability or identity
+        # LONG content is a DOCUMENT to keep — checked BEFORE any command, so a fed
+        # document that happens to begin "run ..." can never reach his hands.
+        if len(x.split()) >= 40 or (os.path.sep in x and os.path.isfile(x)):
+            return "keep"
+        # a SHORT imperative from the operator — his hands perform it. Bounded to
+        # short input on purpose: a command is a line, a document is not.
+        if _DO.match(x) and len(x.split()) <= 20:
+            return "do"
         if _TOPIC.search(x) or _RECALL.search(x):
             return "recall"                      # about a topic — search his readings, not his self
         if _LOOK.search(x):
             return "look"
         if _lone_word(x):
             return "read"
-        if len(x.split()) >= 40 or (os.path.sep in x and os.path.isfile(x)):
-            return "keep"
         # a real question goes to the conscience; anything else is document
         # material he takes in QUIETLY — he does not ask his heart a fragment.
         return "ask" if _is_question(x) else "feed"
@@ -282,9 +310,95 @@ class Steward:
             "recall": "a recall of what he has read — his readings shelf, as testimony",
             "keep": "material to keep — folded onto his readings shelf",
             "feed": "document material — taken in quietly, folded when full",
+            "do":   "an imperative — his hands perform it and report what happened",
             "ask":  "a question of doctrine or judgement — the conscience",
         }[route]
         return {"route": route, "why": why}
+
+    # -- DO: the operator's imperative becomes a REAL action ----------------
+    def do(self, x):
+        """Parse an imperative and PERFORM it — read/write/view/list a file, run a
+        command, eat a path, verify himself, tidy, harvest, fold, map. Every act is
+        journaled (Article IV). Only the operator's word reaches here; fed documents
+        never do. He reports what actually happened, not what he could do."""
+        m = _DO.match(x)
+        verb = m.group(1).lower()
+        verb = _CANON.get(verb, verb)
+        arg = x[m.end():].strip().strip('"').strip("'").strip()
+        self.journal.write("do", verb=verb, arg=arg[:80])   # audit: no move without a trace
+
+        # --- his hands: real acts on real disk ---
+        if verb == "read":
+            if arg and os.path.isfile(arg):
+                r = hands.read(arg)
+                return "read %s (%d bytes):\n%s" % (arg, r["bytes"], r["said"][:1500])
+            if arg and not os.path.sep in arg and " " not in arg:   # "read <word>" -> etymon
+                return etymon.render(arg)
+            return "I can't find a file at '%s'. Give me a path, or 'define %s' to read the word." % (arg, arg)
+        if verb == "write":
+            # "write <path> => <content>"  or  "write <path>"
+            if "=>" in arg:
+                path, content = arg.split("=>", 1)
+                r = hands.write(path.strip(), content.strip())
+            elif arg:
+                r = hands.write(arg, "")
+            else:
+                return "write what, where?  try:  write notes.txt => hello there"
+            return r["said"]
+        if verb == "view":
+            return hands.view(arg or self.root)["said"]
+        if verb == "ls":
+            return hands.ls(arg or self.root)["said"]
+        if verb == "delete":
+            if not arg:
+                return "delete what?"
+            return hands.delete_safe(arg, os.path.join(self.shelf, "_scrap"))["said"]
+        if verb == "run":
+            if not arg:
+                return "run what?  try:  run python --version"
+            r = hands.run(arg, cwd=self.root)
+            return "ran: %s\n%s" % (arg, r["said"][:1800])
+
+        # --- his faculties, driven by plain command ---
+        if verb == "eat":
+            if not arg:
+                return "eat what?  a file, a folder path, or some text."
+            res = self.eat(arg) if (os.path.isfile(arg) or os.path.isdir(arg)) else self.ingest(arg)
+            if res.get("eaten"):
+                extra = (" (%d judged trash/injection)" % res["ignored"]) if res.get("ignored") else ""
+                return "ate %d reading(s) onto the shelf%s. recall them anytime." % (res["eaten"], extra)
+            return "nothing filed — %s" % (res.get("reason", "found nothing readable there."))
+        if verb == "verify":
+            from . import merkle
+            v = merkle.verify(self.root)
+            if v["good"]:
+                return ("I am good — my whole self hashes to my sealed root %s (%d files)."
+                        % (v["root"][:16], v.get("files", 0)) if not v.get("sealed_now")
+                        else v["reason"] + " (root %s)" % v["root"][:16])
+            changed = ", ".join(v["diff"]["changed"][:6]) or "—"
+            return "I am NOT good: %s changed: %s. (run 'seal' if that change was yours.)" % (
+                len(v["diff"]["changed"]), changed)
+        if verb == "seal":
+            from . import merkle
+            rec = merkle.seal(self.root)
+            return "sealed my self at root %s (%d files)." % (rec["root"][:16], rec["files"])
+        if verb == "tidy":
+            do_it = arg.strip() in ("!", "now", "apply", "yes")
+            res = self.tidy(apply=do_it)
+            return ("tidied: " if do_it else "tidy preview (say 'tidy now' to do it): ") + _tidy.summarise(res)
+        if verb == "harvest":
+            since = arg.split()[0] if arg else None
+            res = self.harvest(since=since)
+            return "harvested %d papers onto the shelf%s." % (
+                res["taken"], " (complete)" if res.get("complete") else " (more remain)")
+        if verb == "fold":
+            r = self.fold_window()
+            return ("folded %d words -> mark %s (raw sealed)." % (r["raw_words"], r["mark"][:12])
+                    if r else "nothing weighty enough to fold yet.")
+        if verb == "map":
+            from . import atlas
+            return atlas.tree(self.root)
+        return "I heard the command '%s' but don't know how to do it yet." % verb
 
     # -- THE GATE: weigh what comes in before it is filed as knowledge ------
     def _gate(self, text, source):
@@ -369,6 +483,8 @@ class Steward:
                 else:
                     spoke = ("nothing on my shelf about that yet — I only speak from what I've "
                              "actually read. Feed me on it, or ask me to :harvest or :look.")
+            elif route == "do":
+                spoke = self.do(x)                 # his hands actually perform it
             elif route == "feed":
                 # document material — taken in QUIETLY. It accumulates in his
                 # window and folds to the shelf when full (attend). The heart is
@@ -576,6 +692,15 @@ class Steward:
                               % (res["taken"], " (complete)" if res["complete"] else " (more remain — :harvest again to continue)"))
                     except KeyboardInterrupt:
                         print("\n  ~ paused. Progress saved — :harvest again to continue where I stopped.\n")
+                    continue
+                if x in (":help", ":?", "help", "?"):   # what he can actually DO
+                    print("  ~ Just tell me plainly — I'll do it and report back:")
+                    print("       read <file>           write <file> => <text>     list <folder>")
+                    print("       run <command>         eat <file/folder>          delete <file>")
+                    print("       verify yourself       seal yourself              tidy / tidy now")
+                    print("       harvest [since]       fold                       map")
+                    print("       look up <topic>       recall <topic>             define <word>")
+                    print("     Or ask me a question, or paste a document to fold in. :quit to rest.\n")
                     continue
                 if x == ":journal":                   # peek at the operational ledger on disk
                     st = self.journal.stats()

@@ -16,7 +16,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from steward import (body, mind, etymon, reading, puller, library, atlas,
-                     watch, journal, tidy, voice, harvest, discern, merkle)
+                     watch, journal, tidy, voice, harvest, discern, merkle, hands)
 
 
 def _run(title, strokes):
@@ -50,6 +50,7 @@ def main():
     ok &= _run("tidy (self-cleanup, safe)", tidy.prove())
     ok &= _run("voice (speaks, not parrots)", voice.prove())
     ok &= _run("discern (trash + injection gate)", discern.prove())
+    ok &= _run("hands (read/write/run, real)", hands.prove())
     ok &= _run("merkle (self-verify like git)", merkle.prove())
     ok &= _run("harvest (arXiv, politely)", harvest.prove())
 
