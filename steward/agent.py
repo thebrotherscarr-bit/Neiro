@@ -73,6 +73,7 @@ AGENT_CAPS = {
     "watch":   "watch myself for tampering and drift from my doctrine",
     "map":     "show where everything is, how big, and what has moved",
     "remember": "hold what the world hands me on my shelf, apart from who I am",
+    "diagnose": "run my own Self Test — read my code, run each faculty's proof, report what I can prove is wrong",
 }
 # a few natural synonyms the operator might use for the same capability
 _CAP_SYN = {"digest": "eat", "consume": "eat", "absorb": "ingest", "scrape": "harvest",
@@ -230,6 +231,12 @@ _ZERO = [
     ("help",    re.compile(r"^(help|commands?|what can you do|what do you do|how do i (talk|use|command)|options)\b", re.I)),
     ("verify",  re.compile(r"^(verify( yourself| self)?|fsck|self.?check|integrity|"
                            r"check( your ?self| yourself| self)|are you (good|ok|okay|alright|intact|clean|healthy)|am i good)\b", re.I)),
+    ("diagnose", re.compile(r"^(diagnose( your ?self)?|doctor|physician|self.?diagnos\w*|"
+                            r"(find|look for|check for|hunt|scan for)( your| my)? (bugs?|faults?|problems?|issues?)|"
+                            r"check your code|examine( your ?self| your code| your body)?|"
+                            r"debug( your ?self)?|audit( your ?self| your code)|"
+                            r"what('s| is) wrong( with you)?|whats wrong|any (bugs?|faults?|issues?)|"
+                            r"health.?check|check.?up|see a doctor)\b", re.I)),
     ("seal",    re.compile(r"^seal( your ?self| self)?\b", re.I)),
     ("tidy",    re.compile(r"^(tidy( up)?|clean( up| your ?self| house)?|cleanup)\b", re.I)),
     ("fold",    re.compile(r"^fold( it| now| in)?\b", re.I)),
@@ -261,13 +268,30 @@ _WRITE_NL = re.compile(r"^(?:make|create|write|save|new|put)\s+(?:a\s+|an\s+|the
 _KEEP_LEAD = re.compile(r"^\s*(?:keep|remember|note|jot(?:\s+down)?|save this|file this|"
                         r"hold on ?to|take (?:this )?down)[:,]?\s+", re.I)
 
+
+def _target_like(arg):
+    """Does this argument look like a real file/folder target — as opposed to a
+    scrap of prose that merely began with a command word ('save the world…')? A
+    target is empty, one token, a path, or something with a dotted filename in it."""
+    a = (arg or "").strip()
+    if not a:
+        return True
+    if len(a.split()) == 1:
+        return True
+    if "/" in a or "\\" in a or os.sep in a:
+        return True
+    if re.search(r"\S+\.\w{1,6}\b", a):        # contains a filename like notes.txt
+        return True
+    return False
+
 _HELP_TEXT = (
     "Just tell me plainly — I'll do it and report back:\n"
     "  read <file>            write <file> => <text>     list <folder>\n"
     "  run <command>          eat <file/folder>          delete <file>\n"
     "  verify (am I good?)    seal (accept a change)     map (show the tree)\n"
-    "  tidy / tidy now        harvest [since]            fold\n"
-    "  organize <folder>      audit <folder>             recall <topic>\n"
+    "  diagnose (find my own bugs)               tidy / tidy now\n"
+    "  harvest [since]        fold                       recall <topic>\n"
+    "  organize <folder>      audit <folder>\n"
     "  look up <topic>        define <word>              forge <skill.py>  ·  use <skill> <arg>\n"
     "I read commands loosely — 'show me the map', 'are you good?', 'clean up' all work.\n"
     "Or ask me a question, or paste a document to fold in.")
@@ -423,7 +447,8 @@ class Steward:
         # a SHORT imperative from the operator, read by intent — his hands perform
         # it. Bounded to short input on purpose: a command is a line, a document
         # is not (long content already became "keep" above and can never execute).
-        if _intent(x):
+        iv = _intent(x)
+        if iv and self._command_ok(*iv):
             return "do"
         if _TOPIC.search(x) or _RECALL.search(x):
             return "recall"                      # about a topic — search his readings, not his self
@@ -461,6 +486,38 @@ class Steward:
             "ask":  "a question of doctrine or judgement — the conscience",
         }[route]
         return {"route": route, "why": why}
+
+    def _command_ok(self, verb, arg):
+        """Guard against prose that merely STARTS with a command word. A pasted
+        document is read line by line; a line like 'save the world from disease'
+        must NOT become 'write a file named the world from disease'. A verb is only
+        an order when its target is real — a filename, a path, or something on disk.
+        Zero-arg orders always stand; his hands never move on a scrap of prose."""
+        ZERO = {"help", "verify", "seal", "tidy", "fold", "harvest", "map", "diagnose"}
+        if verb in ZERO:
+            return True
+        if verb == "write":
+            head = arg.split("=>", 1)[0].strip()   # only an explicit, named target
+            return ("=>" in arg) or _target_like(head)
+        if verb == "run":
+            # a command line he was handed — allow a real command, refuse a sentence
+            if not arg:
+                return False
+            toks = arg.split()
+            if len(toks) <= 4:
+                return True
+            return any("/" in t or "\\" in t or t.startswith("-") or re.search(r"\.\w", t)
+                       for t in toks)
+        if verb in ("delete", "eat"):
+            # a MUTATING order: only an explicit, named target. Never guess a target
+            # out of a phrase — 'delete the past and start over' must not find start.py.
+            return _target_like(arg)
+        # read / view / ls — safe to read; may resolve a messy phrase to a real path
+        if not arg:
+            return verb in ("ls", "view")          # bare 'list' / 'view' = his own root
+        if _target_like(arg):
+            return True
+        return self._resolve(arg) != arg           # a word in the phrase names a real path
 
     def _resolve1(self, arg):
         """Resolve ONE candidate name: exact, then relative to his own root, then a
@@ -611,7 +668,19 @@ class Steward:
         if verb == "map":
             from . import atlas
             return atlas.tree(self.root)
+        if verb == "diagnose":
+            return self.diagnose()
         return "I heard the command '%s' but don't know how to do it yet." % verb
+
+    def diagnose(self, run_proofs=True):
+        """Run his own Self Test (Creed V): read his code, run each faculty's proof in
+        a child, and report what he can prove is wrong. He changes nothing — he
+        observes and brings it to your gate; the hand that fixes is yours."""
+        from . import physician
+        d = physician.examine(self.root, run_proofs=run_proofs)
+        self.journal.write("diagnose", faults=d["faults"], findings=len(d["findings"]),
+                           ready=d["ready"])
+        return physician.report(d)
 
     # -- THE GATE: weigh what comes in before it is filed as knowledge ------
     def _gate(self, text, source):
