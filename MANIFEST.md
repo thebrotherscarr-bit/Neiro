@@ -12,10 +12,6 @@ manjuel/
 │                       dashboard pulsing every 2-7s: the map with sizes, what
 │                       moved, tampering/doctrine drift, AND his chain-of-thought.
 │
-├── harvest.py          THE ARXIV HARVESTER.  `python harvest.py [since] [set]` —
-│                       ingests recent arXiv metadata+abstracts onto the shelf as
-│                       testimony. Polite, resumable, his EYE not his sealed heart.
-│
 ├── manjuel.py          THE SEALED HEART — the manual. Air-gapped: it poisons every
 │                       road out the moment it wakes. It runs in its OWN process.
 │
@@ -30,7 +26,7 @@ manjuel/
 │   ├── reading.py            folds a whole document in: seal raw · one mark · crystal
 │   ├── puller.py             pulls text out of ANY type: office, ebook, html, rtf, pdf
 │   ├── library.py            eats/ingests a shelf in parallel; recalls it as testimony
-│   ├── harvest.py            ingests recent arXiv (OAI-PMH), polite + resumable
+│   ├── harvest.py            optional: gather citable references on demand, politely
 │   ├── atlas.py              the map: census, sizes, and what MOVED since last look
 │   ├── watch.py              the sentinel + live mind-window dashboard
 │   ├── journal.py            his operational ledger — appends to a file, folds itself
@@ -51,7 +47,7 @@ manjuel/
 
 The heart (`manjuel.py`) and the tender (`steward/`) are two processes on purpose.
 The heart seals itself by poisoning the network the instant it wakes — so a process
-that must also *look* (sight, the arXiv harvest) can never be the sealed heart. The
+that must also *look* (reach out for citable readings) can never be the sealed heart. The
 tender keeps Manjuel as a CHILD process, ask-only. The body walks in the world; the
 heart stays sealed. That separation is the covenant, made structural.
 
