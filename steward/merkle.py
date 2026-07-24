@@ -31,7 +31,7 @@ _SELF_FILES = ("manjuel.py", "run.py", "start.py", "watch.py", "harvest.py",
                "MANIFEST.md", "README.md", ".gitignore", ".gitattributes",
                "start.bat", "start.command", "watch.bat", "watch.command",
                "harvest.bat", "harvest.command")
-_SELF_DIRS = ("foundation", "doctrine", "steward_foundation", "steward", "proofs")
+_SELF_DIRS = ("foundation", "doctrine", "steward_foundation", "steward", "proofs", "skills")
 _IGNORE = {"__pycache__", ".git", ".ipynb_checkpoints"}
 _EXTS = (".py", ".md", ".txt", ".bat", ".command", ".sh")
 
