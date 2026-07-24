@@ -1,0 +1,23 @@
+# Normalize line endings so Windows commits stop rewriting the whole tree and,
+# more importantly, so his bash launchers never get CRLF (which would break them
+# on macOS / Linux / WSL). Text is LF in the repo; only Windows .bat stays CRLF.
+
+* text=auto eol=lf
+
+# code + docs: always LF (works everywhere, incl. Windows Python)
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.jsonl text eol=lf
+
+# shell / mac launchers MUST be LF or they will not run
+*.sh      text eol=lf
+*.command text eol=lf
+
+# Windows batch files want CRLF
+*.bat text eol=crlf
+
+# license/legal: leave as-is
+LICENSE      text
+LICENSE-DOCS text
