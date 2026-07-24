@@ -1,0 +1,36 @@
+# Steward keeps his own watch — every push and pull request, the whole package
+# must show its work. proofs/prove_all.py wakes each faculty against real data,
+# then the capstones prove he binds them into one loop and remembers. If any
+# faculty cannot show its work, this run goes red and the change is not honest.
+#
+# Standard library only — no dependencies to install, nothing to trust but Python
+# and his own proofs. This is the sentinel that never sleeps, in CI form.
+name: prove
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:      # let you run the proofs by hand from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    name: every faculty shows its work
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]   # prove he holds across versions
+    steps:
+      - name: Check out the estate
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Prove the package (all faculties + capstones)
+        run: python proofs/prove_all.py
