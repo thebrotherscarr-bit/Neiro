@@ -53,3 +53,16 @@ is `.gitignore`d. Commit his self; let his memory grow untracked.
 His covenant is the seal over his soul; his Merkle root is the seal over his whole
 body. Between them, "am I still who I was?" is always a question with a provable
 answer.
+
+## License and names
+
+The **code** — the kernel, the steward package, the proofs, the launchers —
+is licensed under the [Apache License 2.0](LICENSE). The **four foundation
+documents** (`foundation/`) are licensed under
+[CC BY-SA 4.0](LICENSE-DOCS): share and adapt them, but derivatives of the
+doctrine must stay open under the same terms.
+
+The names **Manjuel**, **Steward**, **Neiro**, and **Claudius** are the
+project's identity and are not granted by either license. A modified fork
+must rename itself — see [TRADEMARKS.md](TRADEMARKS.md). The code is free;
+the name is the seal.
