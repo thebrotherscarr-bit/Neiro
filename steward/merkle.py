@@ -27,9 +27,10 @@ import os
 import time
 
 # what defines WHO HE IS — the files verified. Runtime state is deliberately out.
-_SELF_FILES = ("manjuel.py", "run.py", "watch.py", "harvest.py", "MANIFEST.md",
-               "README.md", ".gitignore", "start.bat", "start.command",
-               "watch.bat", "watch.command", "harvest.bat", "harvest.command")
+_SELF_FILES = ("manjuel.py", "run.py", "start.py", "watch.py", "harvest.py",
+               "MANIFEST.md", "README.md", ".gitignore", ".gitattributes",
+               "start.bat", "start.command", "watch.bat", "watch.command",
+               "harvest.bat", "harvest.command")
 _SELF_DIRS = ("foundation", "doctrine", "steward_foundation", "steward", "proofs")
 _IGNORE = {"__pycache__", ".git", ".ipynb_checkpoints"}
 _EXTS = (".py", ".md", ".txt", ".bat", ".command", ".sh")

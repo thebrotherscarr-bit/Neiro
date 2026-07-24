@@ -52,6 +52,7 @@ from . import tidy as _tidy
 from . import voice
 from . import discern
 from . import hands
+from . import mission as _mission
 from .context import Context
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the estate root
@@ -226,6 +227,25 @@ def _lone_word(x):
     return bool(re.fullmatch(r"[a-zA-Z]{4,}", x))
 
 
+_STEP_VERB = re.compile(r"^\s*(organize|sort|audit|inspect|report on|eat|ingest|verify|seal|"
+                        r"tidy|harvest|fold|map|look|search|find|recall|run|read|write|list|"
+                        r"delete|view)\b", re.I)
+
+
+def _looks_mission(x):
+    """A multi-step job, or a compound organize/audit — but ONLY from short
+    operator input (a command, never a fed document), and only when the steps are
+    real ACTIONS, not prose that merely contains a semicolon or 'then'."""
+    if len(x.split()) > 30:
+        return False
+    p = _mission.plan(x)
+    if p["kind"] in ("organize", "audit"):
+        return True
+    if p["kind"] == "list" and len(p["steps"]) >= 2:
+        return bool(_STEP_VERB.match(p["steps"][0]))
+    return False
+
+
 _QWORD = re.compile(r"^\s*(what|who|whose|whom|how|why|when|where|which|is|are|am|was|were|"
                     r"do|does|did|can|could|should|would|will|may|must|have|has|shall|"
                     r"explain|tell me|describe|define|name|list|give me)\b", re.I)
@@ -281,6 +301,9 @@ class Steward:
             return "sum"
         if _CANDO.match(x) or _SELF.search(x):
             return "self"                        # about himself — capability or identity
+        # a short multi-step JOB — plan it and carry it out step by step
+        if _looks_mission(x):
+            return "mission"
         # LONG content is a DOCUMENT to keep — checked BEFORE any command, so a fed
         # document that happens to begin "run ..." can never reach his hands.
         if len(x.split()) >= 40 or (os.path.sep in x and os.path.isfile(x)):
@@ -311,6 +334,7 @@ class Steward:
             "keep": "material to keep — folded onto his readings shelf",
             "feed": "document material — taken in quietly, folded when full",
             "do":   "an imperative — his hands perform it and report what happened",
+            "mission": "a multi-step job — planned, performed step by step, reported",
             "ask":  "a question of doctrine or judgement — the conscience",
         }[route]
         return {"route": route, "why": why}
@@ -483,6 +507,14 @@ class Steward:
                 else:
                     spoke = ("nothing on my shelf about that yet — I only speak from what I've "
                              "actually read. Feed me on it, or ask me to :harvest or :look.")
+            elif route == "mission":
+                # a job of many acts — each step run through his OWN action layer
+                res = _mission.run(x, runner=lambda step: self.act(step)["spoke"],
+                                   journal_write=self.journal.write)
+                head = ("mission complete." if res["done"]
+                        else "mission stopped — a step failed." if res["kind"] == "list"
+                        else "")
+                spoke = (head + "\n" if head else "") + res["report"]
             elif route == "do":
                 spoke = self.do(x)                 # his hands actually perform it
             elif route == "feed":
