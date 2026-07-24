@@ -31,6 +31,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import sys
 import time
 
@@ -176,12 +177,20 @@ class Watch:
         return new
 
     def mind_stream(self):
-        """His thinking, live: new chain-of-thought lines and new self-checks."""
+        """His thinking, live: new chain-of-thought lines and self-checks, each
+        carrying the TIME it happened. Returns (kind, hh:mm:ss, text)."""
         out = []
+        last_ts = time.strftime("%H:%M:%S")
         for ln in self._tail(self.brain["thought"]).splitlines():
             ln = ln.strip()
-            if ln:
-                out.append(("think", ln.lstrip("~ ").strip()))
+            if not ln:
+                continue
+            m = re.match(r"^\[(\d{2}:\d{2}:\d{2})\]\s*(.*)$", ln)
+            if m:
+                last_ts, text = m.group(1), m.group(2)
+            else:
+                text = ln.lstrip("~ ").strip()
+            out.append(("think", last_ts, text))
         for ln in self._tail(self.brain["check"]).splitlines():
             ln = ln.strip()
             if not ln:
@@ -190,14 +199,15 @@ class Watch:
                 e = json.loads(ln)
             except Exception:
                 continue
+            ts = (e.get("ts", "") or "")[11:19] or time.strftime("%H:%M:%S")
             k = e.get("kind", "")
             if k == "act":
-                out.append(("route", "%s  <- %s" % (e.get("route", "?"), e.get("head", "")[:50])))
+                out.append(("route", ts, "%s  <- %s" % (e.get("route", "?"), e.get("head", "")[:44])))
             elif k == "reground":
-                out.append(("self-check", "felt the drift (%.2f) — re-grounded to the covenant"
+                out.append(("self-check", ts, "felt the drift (%.2f) — re-grounded to the covenant"
                             % e.get("drift", 0)))
-            elif k in ("fold", "ingest", "eat", "tidy", "harvest"):
-                out.append(("self-check", "%s %s" % (k, {kk: vv for kk, vv in e.items()
+            elif k in ("fold", "ingest", "eat", "tidy", "harvest", "forge", "mission", "do"):
+                out.append(("self-check", ts, "%s %s" % (k, {kk: vv for kk, vv in e.items()
                             if kk not in ("ts", "kind")})))
         return out
 
@@ -265,16 +275,16 @@ class Watch:
         shown = list(thoughts)[-13:]
         if not shown:
             L.append(_row("  (quiet — ask him something in his window and watch it fill)"))
-        for kind, text in shown:
+        for kind, ts, text in shown:
             mark = {"think": "-", "route": ">", "self-check": "+"}.get(kind, "-")
-            L.append(_row(" %s %s" % (mark, text)))
+            L.append(_row("%s %s %s" % (ts, mark, text)))
         L.append(_rule("├", "┤"))
         L.append(_title("MOVEMENT  ·  what changed on disk"))
         mv = list(moves_buf)[-4:]
         if not mv:
             L.append(_row("  (nothing has moved)"))
-        for m in mv:
-            L.append(_row("  > %s" % m))
+        for ts, m in mv:
+            L.append(_row("%s > %s" % (ts, m)))
         L.append(_rule("└", "┘"))
         return "\n".join(L)
 
@@ -292,22 +302,23 @@ class Watch:
             i = 0
             while rounds is None or i < rounds:
                 res = self.check()
-                new_moves = [atlas.render_event(e) for e in self.movement()]
+                stamp = time.strftime("%H:%M:%S")
+                full = time.strftime("%Y-%m-%d %H:%M:%S")
+                new_moves = [(stamp, atlas.render_event(e)) for e in self.movement()]
                 new_mind = self.mind_stream()
                 moves_buf.extend(new_moves)
                 thoughts.extend(new_mind)
-                stamp = time.strftime("%H:%M:%S")
                 if tty:
                     sys.stdout.write("\033[2J\033[H")   # clear + home: redraw in place
-                    sys.stdout.write(self._dashboard(res, thoughts, moves_buf, stamp, pace, i) + "\n")
+                    sys.stdout.write(self._dashboard(res, thoughts, moves_buf, full, pace, i) + "\n")
                     sys.stdout.flush()
                 else:                                   # piped/automation: plain append
                     tag = "intact" if res["clean"] else "ALERT %d" % len(res["findings"])
-                    print("  %s %s · covenant %s · %d files" % (stamp, tag, res["covenant"], len(self.map_prev)))
-                    for kind, text in new_mind:
-                        print("      · %s" % text)
-                    for m in new_moves:
-                        print("      » %s" % m)
+                    print("  %s %s · covenant %s · %d files" % (full, tag, res["covenant"], len(self.map_prev)))
+                    for kind, ts, text in new_mind:
+                        print("      %s · %s" % (ts, text))
+                    for ts, m in new_moves:
+                        print("      %s » %s" % (ts, m))
                 i += 1
                 if rounds is not None and i >= rounds:
                     break
@@ -364,11 +375,14 @@ def prove():
             f.write(json.dumps({"kind": "reground", "drift": 0.7}) + "\n")
         mind = w.mind_stream()
         check("streams his chain-of-thought (watch his brain)",
-              any(kind == "think" for kind, _ in mind),
-              next((t for k, t in mind if k == "think"), "")[:50])
+              any(kind == "think" for kind, _, _ in mind),
+              next((t for k, _, t in mind if k == "think"), "")[:50])
+        check("each thought carries the TIME it happened",
+              any(kind == "think" and ts == "12:00:00" for kind, ts, _ in mind),
+              next(("%s %s" % (ts, t) for k, ts, t in mind if k == "think"), "")[:50])
         check("streams his self-checks (drift / fold / tidy)",
-              any(kind == "self-check" for kind, _ in mind),
-              next((t for k, t in mind if k == "self-check"), "")[:50])
+              any(kind == "self-check" for kind, _, _ in mind),
+              next((t for k, _, t in mind if k == "self-check"), "")[:50])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return strokes

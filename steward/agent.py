@@ -53,6 +53,7 @@ from . import voice
 from . import discern
 from . import hands
 from . import mission as _mission
+from . import forge as _forge
 from .context import Context
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the estate root
@@ -202,24 +203,84 @@ _TOPIC = re.compile(r"\b(tell me about|what do you know about|what can you tell 
 
 # an IMPERATIVE — the operator telling him to DO something. He performs it and
 # reports what happened. (Fed documents never reach here; only the operator's word.)
-_DO = re.compile(r"^\s*(?:please\s+)?(read|cat|show|open|print|"
-                 r"write|save|view|stat|list|ls|dir|"
-                 r"delete|remove|rm|trash|"
-                 r"run|exec|execute|shell|"
-                 r"eat|ingest|digest|absorb|"
-                 r"tidy|cleanup|clean|"
-                 r"verify|fsck|seal|"
-                 r"harvest|scrape|"
-                 r"fold|map|tree)\b", re.I)
-# fold the many spellings of one act into a single verb
-_CANON = {"cat": "read", "show": "read", "open": "read", "print": "read",
-          "save": "write", "stat": "view",
-          "dir": "ls", "list": "ls",
-          "remove": "delete", "rm": "delete", "trash": "delete",
-          "exec": "run", "execute": "run", "shell": "run",
-          "ingest": "eat", "digest": "eat", "absorb": "eat",
-          "cleanup": "tidy", "clean": "tidy",
-          "fsck": "verify", "scrape": "harvest", "tree": "map"}
+# --- reading a command by INTENT, forgiving of filler and phrasing -----------
+# lead-in politeness/filler he strips before reading the command
+_FILLER_LEAD = re.compile(r"^\s*(?:please|hey|yo|ok|okay|steward[,:]?|go ahead and|now|"
+                          r"i want you to|i'd like you to|i need you to|could you please|"
+                          r"can you please|would you|will you|go)\s+", re.I)
+# little words that clutter a target ("read THE readme", "list MY folder")
+_ARG_FILLER = re.compile(r"^(?:the|a|an|me|my|your|to|at|in|on|of|that|this|it|"
+                         r"file|folder|directory|dir|contents)\b\s*", re.I)
+# zero-argument commands, matched at the (post-filler) start, many phrasings
+_ZERO = [
+    ("help",    re.compile(r"^(help|commands?|what can you do|what do you do|how do i (talk|use|command)|options)\b", re.I)),
+    ("verify",  re.compile(r"^(verify( yourself| self)?|fsck|self.?check|integrity|"
+                           r"check( your ?self| yourself| self)|are you (good|ok|okay|alright|intact|clean|healthy)|am i good)\b", re.I)),
+    ("seal",    re.compile(r"^seal( your ?self| self)?\b", re.I)),
+    ("tidy",    re.compile(r"^(tidy( up)?|clean( up| your ?self| house)?|cleanup)\b", re.I)),
+    ("fold",    re.compile(r"^fold( it| now| in)?\b", re.I)),
+    ("harvest", re.compile(r"^(harvest|scrape( arxiv)?)\b", re.I)),
+    ("map",     re.compile(r"^(map|tree|show( me)?( the)?( map| tree| structure| files| folders| layout)|"
+                           r"where('s| is)? everything|what does .* look like)\b", re.I)),
+]
+# argument commands: a verb, then a target
+_ARGV = re.compile(r"^(read|cat|show|open|print|view|stat|look at|"
+                   r"write|save|list|ls|dir|"
+                   r"delete|remove|rm|trash|"
+                   r"run|exec|execute|shell|"
+                   r"eat|ingest|digest|absorb|consume)\b\s*(.*)$", re.I)
+_ARGV_CANON = {"cat": "read", "show": "read", "open": "read", "print": "read", "look at": "read",
+               "save": "write", "stat": "view",
+               "dir": "ls", "list": "ls",
+               "remove": "delete", "rm": "delete", "trash": "delete",
+               "exec": "run", "execute": "run", "shell": "run",
+               "ingest": "eat", "digest": "eat", "absorb": "eat", "consume": "eat"}
+_LITERAL = {"run", "write"}          # these keep their argument exactly as typed
+
+_HELP_TEXT = (
+    "Just tell me plainly — I'll do it and report back:\n"
+    "  read <file>            write <file> => <text>     list <folder>\n"
+    "  run <command>          eat <file/folder>          delete <file>\n"
+    "  verify (am I good?)    seal (accept a change)     map (show the tree)\n"
+    "  tidy / tidy now        harvest [since]            fold\n"
+    "  organize <folder>      audit <folder>             recall <topic>\n"
+    "  look up <topic>        define <word>              forge <skill.py>  ·  use <skill> <arg>\n"
+    "I read commands loosely — 'show me the map', 'are you good?', 'clean up' all work.\n"
+    "Or ask me a question, or paste a document to fold in.")
+
+
+_ARG_FILLER_TRAIL = re.compile(r"\s+(?:file|folder|directory|dir|please|thanks)$", re.I)
+
+
+def _clean_arg(arg):
+    a = arg.strip().strip('"').strip("'").strip()
+    prev = None
+    while a != prev:
+        prev = a
+        a = _ARG_FILLER.sub("", a).strip()
+        a = _ARG_FILLER_TRAIL.sub("", a).strip()
+    return a
+
+
+def _intent(x):
+    """Read a SHORT operator line as a command, by intent. Returns (verb, arg) or
+    None. Forgiving of politeness, filler, and phrasing; long input is never a
+    command (that stays a document)."""
+    if not x or len(x.split()) > 20:
+        return None
+    t = _FILLER_LEAD.sub("", x.strip().rstrip("?.!")).strip()
+    low = t.lower()
+    for verb, pat in _ZERO:
+        if pat.match(low):
+            return (verb, "")
+    m = _ARGV.match(t)
+    if m:
+        verb = _ARGV_CANON.get(m.group(1).lower(), m.group(1).lower())
+        arg = m.group(2).strip()
+        if verb not in _LITERAL:
+            arg = _clean_arg(arg)
+        return (verb, arg)
+    return None
 
 
 def _lone_word(x):
@@ -230,6 +291,9 @@ def _lone_word(x):
 _STEP_VERB = re.compile(r"^\s*(organize|sort|audit|inspect|report on|eat|ingest|verify|seal|"
                         r"tidy|harvest|fold|map|look|search|find|recall|run|read|write|list|"
                         r"delete|view)\b", re.I)
+# grow a skill (the Forge), or use one he has adopted
+_FORGE = re.compile(r"^\s*(?:forge|learn|evolve|adopt|teach yourself)\s+(.+?)\s*$", re.I)
+_USE = re.compile(r"^\s*(?:use|invoke)\s+([a-z][a-z0-9_]*)\s*(.*)$", re.I)
 
 
 def _looks_mission(x):
@@ -301,6 +365,12 @@ class Steward:
             return "sum"
         if _CANDO.match(x) or _SELF.search(x):
             return "self"                        # about himself — capability or identity
+        # grow a skill (the Forge), or use one he adopted — operator, short input
+        if len(x.split()) <= 20:
+            if _FORGE.match(x):
+                return "forge"
+            if _USE.match(x):
+                return "use"
         # a short multi-step JOB — plan it and carry it out step by step
         if _looks_mission(x):
             return "mission"
@@ -308,9 +378,10 @@ class Steward:
         # document that happens to begin "run ..." can never reach his hands.
         if len(x.split()) >= 40 or (os.path.sep in x and os.path.isfile(x)):
             return "keep"
-        # a SHORT imperative from the operator — his hands perform it. Bounded to
-        # short input on purpose: a command is a line, a document is not.
-        if _DO.match(x) and len(x.split()) <= 20:
+        # a SHORT imperative from the operator, read by intent — his hands perform
+        # it. Bounded to short input on purpose: a command is a line, a document
+        # is not (long content already became "keep" above and can never execute).
+        if _intent(x):
             return "do"
         if _TOPIC.search(x) or _RECALL.search(x):
             return "recall"                      # about a topic — search his readings, not his self
@@ -335,9 +406,31 @@ class Steward:
             "feed": "document material — taken in quietly, folded when full",
             "do":   "an imperative — his hands perform it and report what happened",
             "mission": "a multi-step job — planned, performed step by step, reported",
+            "forge": "a proposed skill — verified in a child, adopted only if it holds",
+            "use":  "run a skill he has adopted, on an argument",
             "ask":  "a question of doctrine or judgement — the conscience",
         }[route]
         return {"route": route, "why": why}
+
+    def _resolve(self, arg):
+        """Find the file/folder he actually means — exact, then relative to his own
+        root, then a forgiving case-insensitive / extension-agnostic match ('readme'
+        -> README.md). Returns the resolved path, or the original if nothing fits."""
+        if not arg:
+            return arg
+        if os.path.exists(arg):
+            return arg
+        p = os.path.join(self.root, arg)
+        if os.path.exists(p):
+            return p
+        low = arg.lower()
+        try:
+            for name in os.listdir(self.root):
+                if name.lower() == low or os.path.splitext(name)[0].lower() == low:
+                    return os.path.join(self.root, name)
+        except OSError:
+            pass
+        return arg
 
     # -- DO: the operator's imperative becomes a REAL action ----------------
     def do(self, x):
@@ -345,20 +438,23 @@ class Steward:
         command, eat a path, verify himself, tidy, harvest, fold, map. Every act is
         journaled (Article IV). Only the operator's word reaches here; fed documents
         never do. He reports what actually happened, not what he could do."""
-        m = _DO.match(x)
-        verb = m.group(1).lower()
-        verb = _CANON.get(verb, verb)
-        arg = x[m.end():].strip().strip('"').strip("'").strip()
+        iv = _intent(x)
+        if not iv:
+            return "I didn't quite catch that as a command. Try 'help' for what I can do."
+        verb, arg = iv
         self.journal.write("do", verb=verb, arg=arg[:80])   # audit: no move without a trace
 
+        if verb == "help":
+            return _HELP_TEXT
         # --- his hands: real acts on real disk ---
         if verb == "read":
-            if arg and os.path.isfile(arg):
-                r = hands.read(arg)
-                return "read %s (%d bytes):\n%s" % (arg, r["bytes"], r["said"][:1500])
+            path = self._resolve(arg)
+            if arg and os.path.isfile(path):
+                r = hands.read(path)
+                return "read %s (%d bytes):\n%s" % (os.path.basename(path), r["bytes"], r["said"][:1500])
             if arg and not os.path.sep in arg and " " not in arg:   # "read <word>" -> etymon
                 return etymon.render(arg)
-            return "I can't find a file at '%s'. Give me a path, or 'define %s' to read the word." % (arg, arg)
+            return "I can't find a file called '%s'. Give me a path, or 'define %s' to read the word." % (arg, arg)
         if verb == "write":
             # "write <path> => <content>"  or  "write <path>"
             if "=>" in arg:
@@ -370,9 +466,9 @@ class Steward:
                 return "write what, where?  try:  write notes.txt => hello there"
             return r["said"]
         if verb == "view":
-            return hands.view(arg or self.root)["said"]
+            return hands.view(self._resolve(arg) if arg else self.root)["said"]
         if verb == "ls":
-            return hands.ls(arg or self.root)["said"]
+            return hands.ls(self._resolve(arg) if arg else self.root)["said"]
         if verb == "delete":
             if not arg:
                 return "delete what?"
@@ -387,6 +483,7 @@ class Steward:
         if verb == "eat":
             if not arg:
                 return "eat what?  a file, a folder path, or some text."
+            arg = self._resolve(arg)
             res = self.eat(arg) if (os.path.isfile(arg) or os.path.isdir(arg)) else self.ingest(arg)
             if res.get("eaten"):
                 extra = (" (%d judged trash/injection)" % res["ignored"]) if res.get("ignored") else ""
@@ -507,6 +604,21 @@ class Steward:
                 else:
                     spoke = ("nothing on my shelf about that yet — I only speak from what I've "
                              "actually read. Feed me on it, or ask me to :harvest or :look.")
+            elif route == "forge":
+                path = _FORGE.match(x).group(1).strip().strip('"').strip("'")
+                res = self.forge(path)
+                if res["adopted"]:
+                    spoke = ("forged '%s' — %s\n       (lineage #%d, self re-sealed at %s). "
+                             "use it:  use %s <arg>"
+                             % (res["name"], res["why"], res["lineage"],
+                                res.get("self_root", "")[:12], res["name"]))
+                else:
+                    spoke = "I did not adopt '%s': %s" % (res.get("name", "it"), res["why"])
+            elif route == "use":
+                mm = _USE.match(x)
+                name, arg = mm.group(1), mm.group(2).strip()
+                r = _forge.invoke(os.path.join(self.root, "skills"), name, arg)
+                spoke = ("%s(%s) -> %s" % (name, arg, r["said"])) if r["ok"] else r["said"]
             elif route == "mission":
                 # a job of many acts — each step run through his OWN action layer
                 res = _mission.run(x, runner=lambda step: self.act(step)["spoke"],
@@ -591,6 +703,23 @@ class Steward:
     def remembers(self, query, limit=5):
         """What he has taken in on a topic — his acquired memory, as testimony."""
         return library.recall(self.readings, query, limit=limit)
+
+    # -- THE FORGE: grow a new skill, but trust none unproven --------------
+    def forge(self, code_or_path):
+        """Put a proposed skill through the Forge — verify it in a child, adopt it
+        only if it held, then RE-SEAL his Merkle root because his self has grown.
+        Verified lineage advances; nothing untested becomes part of him."""
+        skills_dir = os.path.join(self.root, "skills")
+        forge_dir = os.path.join(self.shelf, "forge")
+        res = _forge.propose(code_or_path, skills_dir, forge_dir)
+        if res["adopted"]:
+            from . import merkle
+            seal = merkle.seal(self.root)            # his self honestly changed — re-seal it
+            res["self_root"] = seal["root"]
+            self.journal.write("forge", skill=res["name"], mark=res["mark"][:16], adopted=True)
+        else:
+            self.journal.write("forge", skill=res.get("name", "?"), adopted=False)
+        return res
 
     # -- TIDY: he keeps his own house, carefully ---------------------------
     def tidy(self, apply=False):
@@ -725,14 +854,8 @@ class Steward:
                     except KeyboardInterrupt:
                         print("\n  ~ paused. Progress saved — :harvest again to continue where I stopped.\n")
                     continue
-                if x in (":help", ":?", "help", "?"):   # what he can actually DO
-                    print("  ~ Just tell me plainly — I'll do it and report back:")
-                    print("       read <file>           write <file> => <text>     list <folder>")
-                    print("       run <command>         eat <file/folder>          delete <file>")
-                    print("       verify yourself       seal yourself              tidy / tidy now")
-                    print("       harvest [since]       fold                       map")
-                    print("       look up <topic>       recall <topic>             define <word>")
-                    print("     Or ask me a question, or paste a document to fold in. :quit to rest.\n")
+                if x in (":help", ":?"):              # what he can actually DO
+                    print("  ~ " + _HELP_TEXT.replace("\n", "\n    ") + "\n")
                     continue
                 if x == ":journal":                   # peek at the operational ledger on disk
                     st = self.journal.stats()
