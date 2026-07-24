@@ -186,6 +186,19 @@ def _eval(node):
 
 # --- perceiving: HE decides the route -------------------------------------
 _MATH = re.compile(r"^[\d\s()+\-*/.]+$")
+# a sum asked in words: "what's 12 * 9", "calculate 6+3" — strip the lead, keep the math
+_MATH_LEAD = re.compile(r"^\s*(?:what(?:'s| is)?|whats|whatis|calculate|compute|solve|"
+                        r"how much is|what does|equals?|work out|tell me)\s+", re.I)
+
+
+def _math_expr(x):
+    """The arithmetic in a line, if it really is a sum — tolerating a spoken lead
+    like 'what's'. Returns the bare expression, or None."""
+    t = _MATH_LEAD.sub("", (x or "").strip()).strip().rstrip("=?.").strip()
+    if t and _MATH.match(t) and re.search(r"\d", t) and re.search(r"[+\-*/]", t):
+        return t
+    return None
+
 _LOOK = re.compile(r"\b(find|search|look up|papers?|research|arxiv|citation|study|studies)\b", re.I)
 # ONLY genuine questions about himself — never a bare "can you", which greedily ate
 # real questions like "what can you tell me about X".
@@ -207,7 +220,8 @@ _TOPIC = re.compile(r"\b(tell me about|what do you know about|what can you tell 
 # lead-in politeness/filler he strips before reading the command
 _FILLER_LEAD = re.compile(r"^\s*(?:please|hey|yo|ok|okay|steward[,:]?|go ahead and|now|"
                           r"i want you to|i'd like you to|i need you to|could you please|"
-                          r"can you please|would you|will you|go)\s+", re.I)
+                          r"can you please|can you|could you|can u|could u|would you mind|"
+                          r"would you|will you|lemme|let me|go)\s+", re.I)
 # little words that clutter a target ("read THE readme", "list MY folder")
 _ARG_FILLER = re.compile(r"^(?:the|a|an|me|my|your|to|at|in|on|of|that|this|it|"
                          r"file|folder|directory|dir|contents)\b\s*", re.I)
@@ -237,6 +251,16 @@ _ARGV_CANON = {"cat": "read", "show": "read", "open": "read", "print": "read", "
                "ingest": "eat", "digest": "eat", "absorb": "eat", "consume": "eat"}
 _LITERAL = {"run", "write"}          # these keep their argument exactly as typed
 
+# "make a file called notes.txt that says hello" -> write notes.txt => hello
+_WRITE_NL = re.compile(r"^(?:make|create|write|save|new|put)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?"
+                       r"(?:file|doc|document|note|text file)\s+(?:called|named|at|:)?\s*"
+                       r"[\"']?([^\s\"']+)[\"']?"
+                       r"(?:\s+(?:that says|saying|which says|containing|holding|"
+                       r"with(?:\s+the)?(?:\s+text|\s+contents?)?|=>|:|\-)\s+(.+))?$", re.I)
+# "keep this: ...", "remember that ...", "note ..." -> file it on the shelf
+_KEEP_LEAD = re.compile(r"^\s*(?:keep|remember|note|jot(?:\s+down)?|save this|file this|"
+                        r"hold on ?to|take (?:this )?down)[:,]?\s+", re.I)
+
 _HELP_TEXT = (
     "Just tell me plainly — I'll do it and report back:\n"
     "  read <file>            write <file> => <text>     list <folder>\n"
@@ -250,6 +274,13 @@ _HELP_TEXT = (
 
 
 _ARG_FILLER_TRAIL = re.compile(r"\s+(?:file|folder|directory|dir|please|thanks)$", re.I)
+
+# noise words to skip when scanning a messy phrase for the real target
+_ARG_STOP = {"the", "a", "an", "me", "my", "your", "to", "at", "in", "on", "of", "that",
+             "this", "it", "file", "folder", "directory", "dir", "contents", "content",
+             "whats", "what", "is", "up", "out", "for", "please", "thanks", "show", "list",
+             "read", "open", "view", "inside", "within", "named", "called", "and", "some",
+             "there", "here", "look", "into", "all"}
 
 
 def _clean_arg(arg):
@@ -268,8 +299,16 @@ def _intent(x):
     command (that stays a document)."""
     if not x or len(x.split()) > 20:
         return None
-    t = _FILLER_LEAD.sub("", x.strip().rstrip("?.!")).strip()
+    t = x.strip().rstrip("?.!").strip()
+    prev = None
+    while prev != t:                     # peel stacked lead-ins: "hey can you list" -> "list"
+        prev = t
+        t = _FILLER_LEAD.sub("", t).strip()
     low = t.lower()
+    w = _WRITE_NL.match(t)               # "make a file called X that says Y"
+    if w:
+        name, text = w.group(1).strip(), (w.group(2) or "").strip()
+        return ("write", "%s => %s" % (name, text) if text else name)
     for verb, pat in _ZERO:
         if pat.match(low):
             return (verb, "")
@@ -361,10 +400,13 @@ class Steward:
         m = _DEFINE.match(x)
         if m:
             return "read"
-        if _MATH.match(x) and re.search(r"\d", x) and re.search(r"[+\-*/]", x):
+        if _math_expr(x):
             return "sum"
         if _CANDO.match(x) or _SELF.search(x):
             return "self"                        # about himself — capability or identity
+        # an EXPLICIT "keep this: ..." / "remember ..." — file it, don't guess
+        if len(x.split()) <= 40 and _KEEP_LEAD.match(x):
+            return "keep"
         # grow a skill (the Forge), or use one he adopted — operator, short input
         if len(x.split()) <= 20:
             if _FORGE.match(x):
@@ -389,9 +431,16 @@ class Steward:
             return "look"
         if _lone_word(x):
             return "read"
-        # a real question goes to the conscience; anything else is document
-        # material he takes in QUIETLY — he does not ask his heart a fragment.
-        return "ask" if _is_question(x) else "feed"
+        # a real question goes to the conscience.
+        if _is_question(x):
+            return "ask"
+        # a genuine PASTE — multiple lines, or a real paragraph — is document
+        # material he takes in quietly and folds when full. But a short stray line
+        # he simply didn't understand must NOT be swallowed into his shelf: he says
+        # so plainly, so a mistyped command never vanishes into his memory.
+        if "\n" in x or len(x.split()) >= 12:
+            return "feed"
+        return "huh"
 
     # -- DECIDE: name the faculty and the reason ---------------------------
     def decide(self, x):
@@ -404,6 +453,7 @@ class Steward:
             "recall": "a recall of what he has read — his readings shelf, as testimony",
             "keep": "material to keep — folded onto his readings shelf",
             "feed": "document material — taken in quietly, folded when full",
+            "huh":  "not a command, question, or document he could read — he says so",
             "do":   "an imperative — his hands perform it and report what happened",
             "mission": "a multi-step job — planned, performed step by step, reported",
             "forge": "a proposed skill — verified in a child, adopted only if it holds",
@@ -412,24 +462,64 @@ class Steward:
         }[route]
         return {"route": route, "why": why}
 
-    def _resolve(self, arg):
-        """Find the file/folder he actually means — exact, then relative to his own
-        root, then a forgiving case-insensitive / extension-agnostic match ('readme'
-        -> README.md). Returns the resolved path, or the original if nothing fits."""
+    def _resolve1(self, arg):
+        """Resolve ONE candidate name: exact, then relative to his own root, then a
+        forgiving case-insensitive / extension-agnostic match ('readme' -> README.md),
+        then a shallow walk of his own content folders so he can find a named doctrine
+        document ('constitution' -> foundation/02_CONSTITUTION.md). Returns an existing
+        path, or None."""
         if not arg:
-            return arg
+            return None
         if os.path.exists(arg):
             return arg
         p = os.path.join(self.root, arg)
         if os.path.exists(p):
             return p
         low = arg.lower()
+
+        def _slug(name):                     # '02_CONSTITUTION.md' -> 'constitution'
+            return re.sub(r"^[\d_\-\s]+", "", os.path.splitext(name)[0]).lower()
+
         try:
             for name in os.listdir(self.root):
                 if name.lower() == low or os.path.splitext(name)[0].lower() == low:
                     return os.path.join(self.root, name)
         except OSError:
             pass
+        # a named document of his own — search his content folders one level down
+        if len(low) >= 3 and low not in _ARG_STOP:
+            for sub in ("foundation", "doctrine", "steward_foundation", "steward", "proofs", "skills"):
+                base = os.path.join(self.root, sub)
+                if not os.path.isdir(base):
+                    continue
+                try:
+                    for name in sorted(os.listdir(base)):
+                        stem = os.path.splitext(name)[0].lower()
+                        if stem == low or _slug(name) == low:
+                            return os.path.join(base, name)
+                except OSError:
+                    pass
+        return None
+
+    def _resolve(self, arg):
+        """Find the file/folder he actually means. First the whole argument; then, if
+        it's a messy phrase ('whats in the steward folder', 'up the readme for me'),
+        scan its words for the one that names a real path. Falls back to the original
+        so the caller can report what it couldn't find."""
+        if not arg:
+            return arg
+        hit = self._resolve1(arg)
+        if hit:
+            return hit
+        toks = re.findall(r"[\w.\-/\\]+", arg)
+        if len(toks) > 1:
+            # prefer a token that looks like a filename (has an extension), else any hit
+            ranked = sorted((t for t in toks if t.lower() not in _ARG_STOP),
+                            key=lambda t: (0 if "." in t else 1, len(t)) if "." in t else (1, -len(t)))
+            for tok in ranked:
+                hit = self._resolve1(tok)
+                if hit:
+                    return hit
         return arg
 
     # -- DO: the operator's imperative becomes a REAL action ----------------
@@ -449,6 +539,8 @@ class Steward:
         # --- his hands: real acts on real disk ---
         if verb == "read":
             path = self._resolve(arg)
+            if arg and os.path.isdir(path):        # "show me the doctrine folder" -> list it
+                return hands.ls(path)["said"]
             if arg and os.path.isfile(path):
                 r = hands.read(path)
                 return "read %s (%d bytes):\n%s" % (os.path.basename(path), r["bytes"], r["said"][:1500])
@@ -549,8 +641,9 @@ class Steward:
         spoke = ""
         try:
             if route == "sum":
-                val = _eval(ast.parse(x, mode="eval"))
-                spoke = "%s = %s" % (x.strip(), val)
+                expr = _math_expr(x) or x
+                val = _eval(ast.parse(expr, mode="eval"))
+                spoke = "%s = %s" % (expr.strip(), val)
             elif route == "look":
                 q = re.sub(_LOOK, "", x).strip(" ?.").strip() or x
                 res = sight.look(q, limit=3)
@@ -583,6 +676,7 @@ class Steward:
                 word = m.group(1) if m else x.strip()
                 spoke = etymon.render(word)
             elif route == "keep":
+                x = _KEEP_LEAD.sub("", x).strip() or x  # drop "remember:"/"keep this:" lead-in
                 v = self._gate(x, "pasted")            # trash/injection is witnessed, not filed
                 if not v["keep"]:
                     spoke = "I judged that %s and did not file it: %s" % (v["verdict"], v["reason"])
@@ -634,6 +728,13 @@ class Steward:
                 # window and folds to the shelf when full (attend). The heart is
                 # never asked a fragment; his MIND is never flooded with them.
                 spoke = ""
+            elif route == "huh":
+                # a short line he couldn't read as a command, a question, or a
+                # document — he says so plainly instead of swallowing it.
+                spoke = ("I didn't catch that. If it's a command, say it like "
+                         "'list <folder>', 'read <file>', 'run <cmd>' — or 'help' for the "
+                         "full list. To have me remember it, start with 'keep:' and I'll "
+                         "file it on my shelf.")
             else:  # ask the conscience — grounded by the heart, spoken by Steward
                 spoke = self._speak(x, self.heart.ask(x))
         except ZeroDivisionError as e:
