@@ -74,6 +74,7 @@ AGENT_CAPS = {
     "map":     "show where everything is, how big, and what has moved",
     "remember": "hold what the world hands me on my shelf, apart from who I am",
     "diagnose": "run my own Self Test — read my code, run each faculty's proof, report what I can prove is wrong",
+    "learn":   "learn your words — teach me a phrase and I'll take it as a command you've shown me",
 }
 # a few natural synonyms the operator might use for the same capability
 _CAP_SYN = {"digest": "eat", "consume": "eat", "absorb": "ingest", "scrape": "harvest",
@@ -293,8 +294,9 @@ _HELP_TEXT = (
     "  harvest [since]        fold                       recall <topic>\n"
     "  organize <folder>      audit <folder>\n"
     "  look up <topic>        define <word>              forge <skill.py>  ·  use <skill> <arg>\n"
+    "  teach \"<your words>\" = <command>   ·   what have you learned   ·   forget \"<phrase>\"\n"
     "I read commands loosely — 'show me the map', 'are you good?', 'clean up' all work.\n"
-    "Or ask me a question, or paste a document to fold in.")
+    "Teach me your words and I'll know what you mean. Or ask a question, or paste a document to fold in.")
 
 
 _ARG_FILLER_TRAIL = re.compile(r"\s+(?:file|folder|directory|dir|please|thanks)$", re.I)
@@ -358,6 +360,17 @@ _STEP_VERB = re.compile(r"^\s*(organize|sort|audit|inspect|report on|eat|ingest|
 _FORGE = re.compile(r"^\s*(?:forge|learn|evolve|adopt|teach yourself)\s+(.+?)\s*$", re.I)
 _USE = re.compile(r"^\s*(?:use|invoke)\s+([a-z][a-z0-9_]*)\s*(.*)$", re.I)
 
+# the growing ear: teach him YOUR words, bound to a command he already knows.
+# 'teach "<phrase>" = <command>'  or  'when I say <phrase> do <command>'.
+_TEACH = re.compile(r"^\s*teach\s+[\"']?(.+?)[\"']?\s*(?:=>|->|=|:|\bmeans\b)\s*(.+?)\s*$", re.I)
+_TEACH_NAT = re.compile(r"^\s*when i say\s+[\"']?(.+?)[\"']?[,]?\s+(?:i\s+|you\s+)?"
+                        r"(?:do|run|use|mean|means)\s+(.+?)\s*$", re.I)
+_LEARNED = re.compile(r"^\s*(?:what have you learned|what did i teach you|your (?:words|dialect|"
+                      r"phrasebook)|phrasebook|(?:show|list)( me)?( my| the)? (?:words|phrases|"
+                      r"phrasebook|dialect)|learned (?:phrases|words))\s*\??\s*$", re.I)
+_UNLEARN = re.compile(r"^\s*unlearn\s+[\"']?(.+?)[\"']?\s*$", re.I)
+_FORGET_PH = re.compile(r"^\s*forget\s+[\"'](.+?)[\"']\s*$", re.I)   # quotes required — not 'forget it'
+
 
 def _looks_mission(x):
     """A multi-step job, or a compound organize/audit — but ONLY from short
@@ -412,9 +425,26 @@ class Steward:
         self.grounds = 0                   # times he re-grounded himself
         self.foldings = 0                  # times he folded a reading in
         self._drift_since = 0              # consecutive drifting turns (rate-limits re-grounding)
+        self._book = None                  # the growing ear, loaded lazily and cached
         # heal any readings the OLD bug misfiled into his living memory, BEFORE the
         # heart ever wakes on it — so a polluted notes.md can never infest an answer.
         self.healed = _tidy.heal_memory(root)
+
+    # -- THE GROWING EAR: the words he has learned from you ----------------
+    def _phrasebook(self):
+        """His learned words, loaded once and held. Acquired knowledge on the shelf —
+        never part of his sealed self, so learning your dialect never changes who he is."""
+        if self._book is None:
+            from . import phrasebook
+            self._book = phrasebook.load(self.shelf)
+        return self._book
+
+    def _translate(self, x):
+        """Does this line carry a phrase he has learned from you? Returns the command
+        it stands for, or None. He would rather miss than mishear (The Weighing)."""
+        from . import phrasebook
+        hit = phrasebook.match(self._phrasebook(), x)
+        return hit["command"] if hit else None
 
     # -- PERCEIVE: his judgement, on raw input -----------------------------
     def perceive(self, x):
@@ -431,6 +461,15 @@ class Steward:
         # an EXPLICIT "keep this: ..." / "remember ..." — file it, don't guess
         if len(x.split()) <= 40 and _KEEP_LEAD.match(x):
             return "keep"
+        # learn YOUR words (the growing ear) — teaching, forgetting, recalling them.
+        # Checked before the Forge, whose 'learn'/'teach yourself' means something else.
+        if len(x.split()) <= 20:
+            if _TEACH.match(x) or _TEACH_NAT.match(x):
+                return "teach"
+            if _LEARNED.match(x):
+                return "learned"
+            if _UNLEARN.match(x) or _FORGET_PH.match(x):
+                return "forget"
         # grow a skill (the Forge), or use one he adopted — operator, short input
         if len(x.split()) <= 20:
             if _FORGE.match(x):
@@ -444,6 +483,12 @@ class Steward:
         # document that happens to begin "run ..." can never reach his hands.
         if len(x.split()) >= 40 or (os.path.sep in x and os.path.isfile(x)):
             return "keep"
+        # a phrase YOU taught him wins over his default reading of the words — you
+        # showed him what you mean. Only short, single-line operator input reaches
+        # here (a document already became 'keep' above), so his ear never acts on
+        # what is fed to him.
+        if "\n" not in x and len(x.split()) <= 12 and self._translate(x):
+            return "translate"
         # a SHORT imperative from the operator, read by intent — his hands perform
         # it. Bounded to short input on purpose: a command is a line, a document
         # is not (long content already became "keep" above and can never execute).
@@ -483,6 +528,10 @@ class Steward:
             "mission": "a multi-step job — planned, performed step by step, reported",
             "forge": "a proposed skill — verified in a child, adopted only if it holds",
             "use":  "run a skill he has adopted, on an argument",
+            "teach": "learning your words — a phrase bound to a command he knows",
+            "learned": "showing the words he has learned from you",
+            "forget": "unlearning a phrase from his growing ear",
+            "translate": "a phrase you taught him — heard your way, run as the command",
             "ask":  "a question of doctrine or judgement — the conscience",
         }[route]
         return {"route": route, "why": why}
@@ -704,7 +753,7 @@ class Steward:
         return c["answer"]
 
     # -- ACT: do it, with the real faculty, on the real input --------------
-    def act(self, x):
+    def act(self, x, _translated=False):
         plan = self.decide(x)
         route = plan["route"]
         spoke = ""
@@ -797,13 +846,50 @@ class Steward:
                 # window and folds to the shelf when full (attend). The heart is
                 # never asked a fragment; his MIND is never flooded with them.
                 spoke = ""
+            elif route == "translate":
+                # a phrase he learned from you — show the translation, then act on it.
+                cmd = self._translate(x)
+                inner = self.act(cmd, _translated=True)
+                spoke = "(I hear \"%s\" as: %s)\n%s" % (x.strip(), cmd, inner["spoke"])
+            elif route == "teach":
+                from . import phrasebook
+                m = _TEACH.match(x) or _TEACH_NAT.match(x)
+                phrase, cmd = m.group(1).strip().strip("\"'"), m.group(2).strip()
+                if self.perceive(cmd) in ("huh", "translate"):
+                    spoke = ("I don't know the command \"%s\" myself, so I won't bind \"%s\" to it. "
+                             "Bind to something I already do — try 'help'." % (cmd, phrase))
+                else:
+                    phrasebook.teach(self.shelf, phrase, cmd)
+                    self._book = None                  # reload the ear next time
+                    self.journal.write("teach", phrase=phrase[:60], command=cmd[:60])
+                    spoke = "Learned. When you say \"%s\", I'll take it as: %s" % (phrase, cmd)
+            elif route == "learned":
+                from . import phrasebook
+                book = self._phrasebook()
+                if not book:
+                    spoke = ("You haven't taught me any of your words yet. Teach me like this:  "
+                             "teach \"clean the shop\" = tidy")
+                else:
+                    spoke = "Your words, as I've learned them:\n" + "\n".join(
+                        "  \"%s\"  ->  %s" % (e["phrase"], e["command"]) for e in phrasebook.entries(book))
+            elif route == "forget":
+                from . import phrasebook
+                m = _UNLEARN.match(x) or _FORGET_PH.match(x)
+                phrase = m.group(1).strip().strip("\"'")
+                if phrasebook.match(self._phrasebook(), phrase):
+                    phrasebook.forget(self.shelf, phrase)
+                    self._book = None
+                    self.journal.write("forget", phrase=phrase[:60])
+                    spoke = "Forgotten. I'll no longer hear \"%s\" as a command." % phrase
+                else:
+                    spoke = "I have no learned phrase \"%s\" to forget." % phrase
             elif route == "huh":
                 # a short line he couldn't read as a command, a question, or a
                 # document — he says so plainly instead of swallowing it.
                 spoke = ("I didn't catch that. If it's a command, say it like "
                          "'list <folder>', 'read <file>', 'run <cmd>' — or 'help' for the "
-                         "full list. To have me remember it, start with 'keep:' and I'll "
-                         "file it on my shelf.")
+                         "full list. If it's a phrase you'll reuse, teach me:  "
+                         "teach \"%s\" = <a command I know>." % x.strip()[:40])
             else:  # ask the conscience — grounded by the heart, spoken by Steward
                 spoke = self._speak(x, self.heart.ask(x))
         except ZeroDivisionError as e:
