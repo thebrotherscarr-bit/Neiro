@@ -28,6 +28,9 @@ import tempfile
 
 from manjuel import Manjuel, Fold, _FN
 
+# the four-document soul lives at the estate root, one floor up from steward/
+_SOUL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "foundation")
+
 
 def place(soul_foundation, root):
     """Place a fresh Manjuel at `root`: give it the four-document soul, its own
@@ -72,7 +75,11 @@ def discard(root):
     return not os.path.exists(root)
 
 
-def prove(soul_foundation):
+def prove(soul_foundation=None):
+    """Proven against REAL Manjuels on REAL disk. Takes the soul to place; defaults
+    to the four documents at the estate root, so his Self Test can run it with no
+    argument, like every other faculty."""
+    soul_foundation = soul_foundation or _SOUL
     strokes = []
 
     def check(name, ok, detail=""):
@@ -122,10 +129,9 @@ def prove(soul_foundation):
 
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    soul = os.path.join(here, "foundation")
+    soul = _SOUL
     if not os.path.isdir(soul):
-        print("\n  I need foundation/ beside me — the four documents — to place a soul.\n")
+        print("\n  I need the four foundation documents at the estate root to place a soul.\n")
         return 1
     print("\n  STEWARD THE COLLECTOR — placing Manjuels, compressing findings home.")
     print("  (proven against real Manjuels, on real disk.)\n")

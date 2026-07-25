@@ -75,6 +75,7 @@ AGENT_CAPS = {
     "remember": "hold what the world hands me on my shelf, apart from who I am",
     "diagnose": "run my own Self Test — read my code, run each faculty's proof, report what I can prove is wrong",
     "learn":   "learn your words — teach me a phrase and I'll take it as a command you've shown me",
+    "sandbox": "try Python in a scratch ground of its own — see what it did, keep only what you choose",
 }
 # a few natural synonyms the operator might use for the same capability
 _CAP_SYN = {"digest": "eat", "consume": "eat", "absorb": "ingest", "scrape": "harvest",
@@ -295,6 +296,7 @@ _HELP_TEXT = (
     "  organize <folder>      audit <folder>\n"
     "  look up <topic>        define <word>              forge <skill.py>  ·  use <skill> <arg>\n"
     "  teach \"<your words>\" = <command>   ·   what have you learned   ·   forget \"<phrase>\"\n"
+    "  :sandbox  (try Python in a scratch ground)      diagnose (my own Self Test)\n"
     "I read commands loosely — 'show me the map', 'are you good?', 'clean up' all work.\n"
     "Teach me your words and I'll know what you mean. Or ask a question, or paste a document to fold in.")
 
@@ -1035,6 +1037,55 @@ class Steward:
             self._drift_since = 0
         return {"feeling": feel["feeling"], "drift": feel["drift"], "fullness": feel["fullness"]}
 
+    # -- SANDBOX: an isolated ground to try code in, together --------------
+    def _sandbox_mode(self):
+        """The workbench: type or paste Python, run it in a throwaway ground of its
+        own, see plainly what it did, and keep only what you choose. The ground can
+        clutter neither his estate nor your files; nothing survives unless you keep it."""
+        from . import sandbox
+        print("\n  ~ Sandbox open — a scratch ground of its own. Type or paste Python.")
+        print("       :run  execute what you've typed      :clear  start over")
+        print("       :keep <name>  save what it made       :done   leave\n")
+        buf, last = [], None
+        try:
+            while True:
+                try:
+                    line = input("  sandbox> ")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                s = line.strip()
+                if s in (":done", ":quit", ":exit", ":q"):
+                    break
+                if s == ":clear":
+                    buf = []
+                    print("  ~ cleared — the ground is empty again.\n")
+                    continue
+                if s == ":run":
+                    if not buf:
+                        print("  ~ nothing to run yet — type some Python first.\n")
+                        continue
+                    if last:
+                        sandbox.discard(last["ground"])      # hold only the newest ground
+                    last = sandbox.run("\n".join(buf))
+                    self.journal.write("sandbox", ran=True, ok=last["ok"], made=len(last["made"]))
+                    print("  " + sandbox.report(last).replace("\n", "\n  ") + "\n")
+                    continue
+                if s.startswith(":keep"):
+                    if not last or not os.path.isdir(last.get("ground", "")):
+                        print("  ~ run something first, then keep what it made.\n")
+                        continue
+                    name = re.sub(r"[^A-Za-z0-9_.-]+", "-", s[5:].strip()).strip("-") or "trial"
+                    dest = sandbox.keep(last["ground"], os.path.join(self.root, "workshop"), name)
+                    self.journal.write("sandbox", kept=os.path.relpath(dest, self.root))
+                    print("  ~ kept in %s\n" % os.path.relpath(dest, self.root))
+                    continue
+                buf.append(line)
+        finally:
+            if last:
+                sandbox.discard(last["ground"])
+            print("  ~ Sandbox closed. The ground is cleared; only what you kept remains.\n")
+
     # -- RUN: the live loop ------------------------------------------------
     def run(self):
         _utf8_streams()
@@ -1228,6 +1279,9 @@ class Steward:
                     else:
                         print("  ~ nothing weighty enough to fold yet.")
                     print()
+                    continue
+                if x in (":sandbox", "sandbox", ":scratch"):   # a ground to try code in, safely
+                    self._sandbox_mode()
                     continue
                 # one bad line must never end the session — he catches, names it,
                 # and stays awake for the next thing you say.
