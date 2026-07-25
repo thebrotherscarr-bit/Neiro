@@ -76,6 +76,7 @@ AGENT_CAPS = {
     "diagnose": "run my own Self Test — read my code, run each faculty's proof, report what I can prove is wrong",
     "learn":   "learn your words — teach me a phrase and I'll take it as a command you've shown me",
     "sandbox": "try Python in a scratch ground of its own — see what it did, keep only what you choose",
+    "workbench": "build a skill with you — try it, prove it, and forge it into a permanent command",
 }
 # a few natural synonyms the operator might use for the same capability
 _CAP_SYN = {"digest": "eat", "consume": "eat", "absorb": "ingest", "scrape": "harvest",
@@ -297,6 +298,7 @@ _HELP_TEXT = (
     "  look up <topic>        define <word>              forge <skill.py>  ·  use <skill> <arg>\n"
     "  teach \"<your words>\" = <command>   ·   what have you learned   ·   forget \"<phrase>\"\n"
     "  :sandbox  (try Python in a scratch ground)      diagnose (my own Self Test)\n"
+    "  :workbench  (build a skill, prove it, forge it into a 'use' command)\n"
     "I read commands loosely — 'show me the map', 'are you good?', 'clean up' all work.\n"
     "Teach me your words and I'll know what you mean. Or ask a question, or paste a document to fold in.")
 
@@ -1086,6 +1088,78 @@ class Steward:
                 sandbox.discard(last["ground"])
             print("  ~ Sandbox closed. The ground is cleared; only what you kept remains.\n")
 
+    # -- WORKBENCH: build a skill together, prove it, forge it -------------
+    def _workbench_mode(self):
+        """Shape a real skill with him: type or paste a module with run(arg) and
+        prove(), TRY its run on an argument, CHECK its proof, and — only when it
+        holds, at your word — FORGE it into a permanent 'use <name> <arg>' command.
+        Trying and checking are safe rehearsal in a child; nothing is his until forged."""
+        from . import workbench
+        print("\n  ~ Workbench open — shape a skill, prove it, then forge it.")
+        print("       :template [name]  start from a blank skill    :show   see your code")
+        print("       :try <arg>  run its run(arg)                   :check  run its prove()")
+        print("       :forge  make it his, if its proof holds        :clear / :done\n")
+        buf = []
+        try:
+            while True:
+                try:
+                    line = input("  workbench> ")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                s = line.strip()
+                if s in (":done", ":quit", ":exit", ":q"):
+                    break
+                if s == ":clear":
+                    buf = []
+                    print("  ~ cleared.\n")
+                    continue
+                if s == ":show":
+                    print("  " + ("\n  ".join(buf) if buf else "(nothing yet — :template to start)") + "\n")
+                    continue
+                if s.startswith(":template"):
+                    name = re.sub(r"[^a-z0-9_]+", "_", s[9:].strip().lower()).strip("_") or "my_skill"
+                    buf = workbench.scaffold(name).splitlines()
+                    print("  ~ a blank '%s' is on the bench. :show it, edit it, then :try / :check.\n" % name)
+                    continue
+                if s.startswith(":try"):
+                    if not buf:
+                        print("  ~ nothing on the bench yet — :template or paste a skill first.\n")
+                        continue
+                    r = workbench.try_run("\n".join(buf), s[4:].strip())
+                    if r["ok"]:
+                        print("  ~ run(%r) returned: %s" % (s[4:].strip(), r["value"]))
+                    else:
+                        print("  ~ it did not run: %s" % r.get("why", "?"))
+                    if r.get("output"):
+                        print("     it printed: " + r["output"].replace("\n", "\n     "))
+                    print()
+                    continue
+                if s == ":check":
+                    if not buf:
+                        print("  ~ nothing on the bench yet.\n")
+                        continue
+                    r = workbench.check("\n".join(buf))
+                    print("  ~ %s" % ("its proof HELD — ready to forge." if r["ok"]
+                                      else "its proof did not hold: %s" % r.get("why", "?")))
+                    print()
+                    continue
+                if s == ":forge":
+                    if not buf:
+                        print("  ~ nothing to forge yet.\n")
+                        continue
+                    res = self.forge("\n".join(buf))
+                    if res["adopted"]:
+                        print("  ~ forged '%s' — %s" % (res["name"], res["why"]))
+                        print("     it's yours now:  use %s <arg>   (lineage #%d, self re-sealed)\n"
+                              % (res["name"], res["lineage"]))
+                    else:
+                        print("  ~ not adopted: %s\n" % res["why"])
+                    continue
+                buf.append(line)
+        finally:
+            print("  ~ Workbench closed.\n")
+
     # -- RUN: the live loop ------------------------------------------------
     def run(self):
         _utf8_streams()
@@ -1282,6 +1356,9 @@ class Steward:
                     continue
                 if x in (":sandbox", "sandbox", ":scratch"):   # a ground to try code in, safely
                     self._sandbox_mode()
+                    continue
+                if x in (":workbench", "workbench", ":build"):  # build a skill, prove it, forge it
+                    self._workbench_mode()
                     continue
                 # one bad line must never end the session — he catches, names it,
                 # and stays awake for the next thing you say.

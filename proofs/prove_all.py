@@ -17,7 +17,7 @@ if _ROOT not in sys.path:
 
 from steward import (body, mind, etymon, reading, puller, library, atlas,
                      watch, journal, tidy, voice, harvest, discern, merkle, hands,
-                     mission, forge, physician, phrasebook, sandbox)
+                     mission, forge, physician, phrasebook, sandbox, workbench)
 
 
 def _run(title, strokes):
@@ -57,6 +57,7 @@ def main():
     ok &= _run("physician (his own Self Test)", physician.prove())
     ok &= _run("phrasebook (the growing ear)", phrasebook.prove())
     ok &= _run("sandbox (a ground to try code)", sandbox.prove())
+    ok &= _run("workbench (build & forge a skill)", workbench.prove())
     ok &= _run("merkle (self-verify like git)", merkle.prove())
     ok &= _run("harvest (arXiv, politely)", harvest.prove())
 
