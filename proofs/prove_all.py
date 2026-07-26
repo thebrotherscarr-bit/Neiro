@@ -17,7 +17,7 @@ if _ROOT not in sys.path:
 
 from steward import (body, mind, etymon, reading, puller, library, atlas,
                      watch, journal, tidy, voice, harvest, discern, merkle, hands,
-                     mission, forge, physician, phrasebook, sandbox, workbench)
+                     mission, forge, physician, phrasebook, sandbox, workbench, radar)
 
 
 def _run(title, strokes):
@@ -47,6 +47,7 @@ def main():
     ok &= _run("library (eat a shelf)", library.prove())
     ok &= _run("atlas (map + movement)", atlas.prove())
     ok &= _run("watch (self-sentinel)", watch.prove())
+    ok &= _run("radar (horizon scan)", radar.prove())
     ok &= _run("journal (ledger to file)", journal.prove())
     ok &= _run("tidy (self-cleanup, safe)", tidy.prove())
     ok &= _run("voice (speaks, not parrots)", voice.prove())

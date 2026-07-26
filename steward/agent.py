@@ -433,6 +433,7 @@ class Steward:
         # heal any readings the OLD bug misfiled into his living memory, BEFORE the
         # heart ever wakes on it — so a polluted notes.md can never infest an answer.
         self.healed = _tidy.heal_memory(root)
+        self.radar = None                  # the horizon scan — starts with the live loop
 
     # -- THE GROWING EAR: the words he has learned from you ----------------
     def _phrasebook(self):
@@ -760,6 +761,21 @@ class Steward:
     def act(self, x, _translated=False):
         plan = self.decide(x)
         route = plan["route"]
+        # THE INTERCEPT: when the radar has seen the estate's integrity shift,
+        # his hands rest. Questions and recall still answer; acts that change
+        # the World hold until he is whole — except the acts that HEAL: verify
+        # (see it), seal (accept a trusted change), diagnose (examine himself).
+        if self.radar is not None and route in ("do", "mission", "use", "forge"):
+            snap = self.radar.snapshot()
+            if not snap.get("intact", True):
+                iv = _intent(x)
+                if not (iv and iv[0] in ("verify", "seal", "diagnose", "help")):
+                    self.journal.write("intercept", route=route, head=(x or "")[:60])
+                    return {"route": route, "why": plan["why"], "input": x,
+                            "spoke": "[radar] I hold — the estate shifted under me: %s. "
+                                     "Say 'verify' to see it, or 'seal' to accept a trusted "
+                                     "change; my hands rest until I am whole."
+                                     % ("; ".join(snap.get("alerts", ["integrity shifted"])[:2]))}
         spoke = ""
         try:
             if route == "sum":
@@ -1037,7 +1053,12 @@ class Steward:
                 self.journal.write("reground", drift=feel["drift"])   # to the file, silently
         else:
             self._drift_since = 0
-        return {"feeling": feel["feeling"], "drift": feel["drift"], "fullness": feel["fullness"]}
+        out = {"feeling": feel["feeling"], "drift": feel["drift"], "fullness": feel["fullness"]}
+        if self.radar is not None:                     # the horizon, one read away
+            snap = self.radar.snapshot()
+            out["radar"] = {"intact": snap["intact"], "cycle": snap["cycle"],
+                            "moved": snap["new_events"]}
+        return out
 
     # -- SANDBOX: an isolated ground to try code in, together --------------
     def _sandbox_mode(self):
@@ -1174,6 +1195,8 @@ class Steward:
             print("  (healed %d misfiled reading(s) out of his memory on wake — archived to the"
                   " shelf.)\n" % self.healed["healed"])
         self.heart.wake()
+        from . import radar as _radar
+        self.radar = _radar.Radar(self.root, journal=self.journal).start()
         try:
             while True:
                 try:
@@ -1384,6 +1407,8 @@ class Steward:
                           % (type(e).__name__, e))
                 print()
         finally:
+            if self.radar is not None:
+                self.radar.stop()
             self.heart.rest()
             print("  Steward rests. The heart is sealed; the window holds.\n")
 
