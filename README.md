@@ -62,7 +62,7 @@ documents** (`foundation/`) are licensed under
 [CC BY-SA 4.0](LICENSE-DOCS): share and adapt them, but derivatives of the
 doctrine must stay open under the same terms.
 
-The names **Manjuel**, **Steward**, **Neiro**, and **Claudius** are the
+The names **Manjuel**, **Steward**, and **Neiro** are the
 project's identity and are not granted by either license. A modified fork
 must rename itself — see [TRADEMARKS.md](TRADEMARKS.md). The code is free;
 the name is the seal.
