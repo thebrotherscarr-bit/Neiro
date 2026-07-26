@@ -23,6 +23,13 @@ This watcher awakens no heart and touches no network. It only reads and hashes,
 so it can run forever, cheaply, beside him. It never acts on what it finds — it
 WITNESSES and reports; the hand on the wheel is yours (Article VI, VII).
 
+The one exception is the opt-in LOCAL FORGE at the foot of this file
+(`python watch.py forge "..."`): it speaks to a model already running on
+localhost — Ollama, vLLM, llama.cpp — and lets that model act through four
+caged tools (read/write/run in a vault, and index the estate read-only). It
+touches no network beyond the loopback and wakes only when you call it; the
+sentinel path above still touches nothing.
+
 Standard library only, plus manjuel.py's own ledger check. Nothing leaves the
 machine.
 """
@@ -388,13 +395,236 @@ def prove():
     return strokes
 
 
-def main():
-    # `python watch.py`      -> random 2-7s pulse (watch his brain live)
-    # `python watch.py 5`    -> fixed 5s scan
-    interval = None
-    if len(sys.argv) > 1:
+# ============================================================================
+# THE GATEWAY — between the steward of the DISK and the steward of the REPO.
+#
+# The sentinel above only WATCHES. This is the one place in the file that
+# ACTS, and it is grounded in real disk truth — never a model's guess:
+#
+#   * FOUR HANDS  — read / write / run inside a caged vault, and index the
+#     estate read-only (the disk steward's eyes and hands).
+#   * REPO STATE  — the live git bearings: branch, clean/dirty, and how the
+#     disk sits against origin on GitHub (the repo steward's eyes).
+#   * REPORT      — one grounded readout, NO model, pure ground truth. This is
+#     the channel to talk to Steward without anything hallucinating in between.
+#   * FORGE       — optionally hand that same grounded state to a model already
+#     running on localhost (Ollama :11434 / vLLM :8000 / llama.cpp :8080,
+#     OpenAI-compatible) and let it act through the hands. Opt-in only.
+#
+# No packet leaves the machine but the loopback and `git` to its own remote.
+# Standard library only — the estate keeps its no-dependency covenant.
+# ============================================================================
+
+FORGE_VAULT = os.path.join(_ROOT, "forge_vault")       # the cage: writes/runs live here
+LOCAL_API_BASE = "http://localhost:11434/v1"           # Ollama; vLLM :8000, llama.cpp :8080
+LOCAL_MODEL = "qwen2.5-coder:7b-instruct-q8_0"         # any tool-capable local model
+
+
+def _git(*args):
+    import subprocess
+    try:
+        r = subprocess.run(["git"] + list(args), cwd=_ROOT,
+                           capture_output=True, text=True)
+        return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+    except (OSError, ValueError) as e:
+        return 1, "", str(e)
+
+
+def _repo_state(_ignored=None):
+    """The repo steward's eyes: real git state of the estate on disk vs GitHub.
+    Ground truth from `git`, never a guess. Returns a JSON object."""
+    rc, branch, _ = _git("rev-parse", "--abbrev-ref", "HEAD")
+    _, head, _ = _git("rev-parse", "--short", "HEAD")
+    _, up, _ = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    behind = ahead = None
+    if up:
+        rc2, lr, _ = _git("rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+        if rc2 == 0 and "\t" in lr:
+            b, a = lr.split("\t")[:2]
+            behind, ahead = (int(b) if b.isdigit() else None), (int(a) if a.isdigit() else None)
+    _, porc, _ = _git("status", "--porcelain")
+    dirty = [l for l in porc.splitlines() if l.strip() and not l.startswith("??")]
+    untracked = [l[3:] for l in porc.splitlines() if l.startswith("??")]
+    _, remote, _ = _git("config", "--get", "remote.origin.url")
+    return json.dumps({"branch": branch if rc == 0 else "?", "head": head or "?",
+                       "upstream": up or None, "ahead": ahead, "behind": behind,
+                       "dirty": dirty, "untracked": untracked,
+                       "remote": remote or None}, ensure_ascii=False)
+
+
+def _forge_read(filepath):
+    p = os.path.join(FORGE_VAULT, os.path.basename(filepath))
+    if not os.path.isfile(p):
+        return "Error: %s does not exist in the vault." % filepath
+    with open(p, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def _forge_write(filepath, content):
+    os.makedirs(FORGE_VAULT, exist_ok=True)
+    p = os.path.join(FORGE_VAULT, os.path.basename(filepath))
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(content)
+    return "Success: wrote %s (%d bytes) into the vault." % (os.path.basename(filepath), len(content))
+
+
+def _forge_run(command_string):
+    import subprocess
+    os.makedirs(FORGE_VAULT, exist_ok=True)
+    try:
+        r = subprocess.run(command_string, shell=True, capture_output=True,
+                           text=True, timeout=15, cwd=FORGE_VAULT)
+        return "Exit %d\nSTDOUT:\n%s\nSTDERR:\n%s" % (r.returncode, r.stdout, r.stderr)
+    except Exception as e:
+        return "Execution failed at the system level: %s" % e
+
+
+def _forge_index(_ignored=None):
+    """Index the estate's REAL layout — read-only, structure only, skipping
+    runtime state and git noise. The disk steward's answer to 'what is here?'."""
+    skip = {".git", "__pycache__", "shelf", "memory", "ledger", "weights",
+            "strata", "forge_vault", "node_modules"}
+    out = []
+    for base, dirs, files in os.walk(_ROOT):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for fn in sorted(files):
+            if fn.endswith((".pyc", ".pyo")):
+                continue
+            out.append(os.path.relpath(os.path.join(base, fn), _ROOT).replace(os.sep, "/"))
+    return json.dumps(sorted(out), ensure_ascii=False)
+
+
+_FORGE_TOOLS = [
+    {"type": "function", "function": {
+        "name": "read_workspace_file",
+        "description": "Read a file's contents from the forge vault.",
+        "parameters": {"type": "object",
+                       "properties": {"filepath": {"type": "string"}},
+                       "required": ["filepath"]}}},
+    {"type": "function", "function": {
+        "name": "write_workspace_file",
+        "description": "Write or overwrite a file in the forge vault.",
+        "parameters": {"type": "object",
+                       "properties": {"filepath": {"type": "string"},
+                                      "content": {"type": "string"}},
+                       "required": ["filepath", "content"]}}},
+    {"type": "function", "function": {
+        "name": "execute_terminal_command",
+        "description": "Run a shell command inside the forge vault sandbox.",
+        "parameters": {"type": "object",
+                       "properties": {"command_string": {"type": "string"}},
+                       "required": ["command_string"]}}},
+    {"type": "function", "function": {
+        "name": "index_repository",
+        "description": "Return a JSON array of every file path in the estate — the real repository layout on disk.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "repo_state",
+        "description": "Return the real git state of the estate: branch, HEAD, clean/dirty, and how it sits against GitHub (ahead/behind origin).",
+        "parameters": {"type": "object", "properties": {}}}},
+]
+
+_FORGE_DISPATCH = {
+    "read_workspace_file": lambda a: _forge_read(a.get("filepath", "")),
+    "write_workspace_file": lambda a: _forge_write(a.get("filepath", ""), a.get("content", "")),
+    "execute_terminal_command": lambda a: _forge_run(a.get("command_string", "")),
+    "index_repository": _forge_index,
+    "repo_state": _repo_state,
+}
+
+
+def report():
+    """Talk to Steward with NO model in the way — pure ground truth. The disk
+    steward's layout and the repo steward's git state, straight from disk."""
+    print("\n  GATEWAY REPORT — disk steward + repo steward, no model, ground truth\n")
+    print("  repo state:")
+    print("    " + _repo_state())
+    files = json.loads(_forge_index())
+    print("\n  estate layout: %d files" % len(files))
+    for p in files:
+        print("    " + p)
+    print()
+    return 0
+
+
+def _forge_post(messages):
+    """POST an OpenAI-compatible chat/completions request to the LOCAL model.
+    Stdlib only. Returns the assistant `message` dict, or raises a plain reason."""
+    import urllib.request
+    import urllib.error
+    url = LOCAL_API_BASE.rstrip("/") + "/chat/completions"
+    body = json.dumps({"model": LOCAL_MODEL, "messages": messages,
+                       "tools": _FORGE_TOOLS, "temperature": 0.1}).encode("utf-8")
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        raise RuntimeError("could not reach the local model at %s (%s). Is Ollama/vLLM running?"
+                           % (url, getattr(e, "reason", e)))
+    return data["choices"][0]["message"]
+
+
+def forge(task, rounds=24):
+    """Optionally drive a LOCAL model over the hands — but it is handed the real
+    disk and repo state (index_repository, repo_state) so it is never blind to
+    what is actually on the disk. Acts only on THIS task, on THIS machine."""
+    os.makedirs(FORGE_VAULT, exist_ok=True)
+    messages = [
+        {"role": "system", "content":
+            "You are the estate's local forge hand, the gateway between the disk "
+            "and the GitHub repo. Before acting, call index_repository and "
+            "repo_state so you know what is actually on the disk and how it sits "
+            "against GitHub. Use the tools to read, write, and run code in the "
+            "vault. Work in small steps; when done, stop calling tools and "
+            "summarize what you did and what changed."},
+        {"role": "user", "content": task},
+    ]
+    print("\n  THE FORGE GATEWAY — model %s at %s\n  task: %s\n"
+          % (LOCAL_MODEL, LOCAL_API_BASE, task))
+    for _ in range(rounds):
         try:
-            interval = max(1, int(sys.argv[1]))
+            choice = _forge_post(messages)
+        except RuntimeError as e:
+            print("  [halt] %s" % e)
+            return 1
+        messages.append(choice)
+        calls = choice.get("tool_calls") or []
+        if not calls:
+            print("\n  forge done:\n%s\n" % (choice.get("content") or "(no text)"))
+            return 0
+        for c in calls:
+            name = c["function"]["name"]
+            raw = c["function"].get("arguments", "{}")
+            try:
+                args = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                args = {}
+            shown = {k: (v[:40] + "…" if isinstance(v, str) and len(v) > 40 else v)
+                     for k, v in (args or {}).items()}
+            print("  > %s %s" % (name, shown))
+            result = _FORGE_DISPATCH.get(name, lambda a: "unknown tool: %s" % name)(args)
+            messages.append({"role": "tool", "tool_call_id": c.get("id", "call_1"),
+                             "name": name, "content": str(result)})
+    print("\n  forge stopped at the %d-round cap.\n" % rounds)
+    return 0
+
+
+def main():
+    # `python watch.py`              -> the sentinel dashboard (random 2-7s pulse)
+    # `python watch.py 5`            -> the sentinel, fixed 5s scan
+    # `python watch.py report`       -> GATEWAY: pure ground truth, no model
+    # `python watch.py forge "..."`  -> GATEWAY: hand the grounded state to a local model
+    argv = sys.argv[1:]
+    if argv and argv[0] == "report":
+        return report()
+    if argv and argv[0] == "forge":
+        return forge(" ".join(argv[1:]) or "Index the repository and report its real state.")
+    interval = None
+    if argv:
+        try:
+            interval = max(1, int(argv[0]))
         except ValueError:
             pass
     Watch().run(interval=interval)

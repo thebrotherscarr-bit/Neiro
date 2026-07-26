@@ -1,0 +1,28 @@
+* [33ma874251[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m doctrine: the Forge Foundation and the Smith's Charter — it is law
+*   [33mafb7f21[m Merge pull request #4 from thebrotherscarr-bit/smith/radar
+[32m|[m[33m\[m  
+[32m|[m * [33mf9d9fbb[m[33m ([m[1;32msmith/radar[m[33m)[m proving
+[32m|[m * [33m37213eb[m prove all
+[32m|[m * [33m6a6c9bb[m adding radar/agent
+* [33m|[m   [33m64dc122[m Merge pull request #3 from thebrotherscarr-bit/rescue/local-work
+[34m|[m[35m\[m [33m\[m  
+[34m|[m * [33m|[m [33mc090d5e[m[33m ([m[1;32mrescue/local-work[m[33m)[m rescue: everything currently on my machine
+[34m|[m [33m|[m[33m/[m  
+* [33m|[m [33m18e966e[m Merge pull request #2 from thebrotherscarr-bit/smith/radar
+[36m|[m[33m\[m[33m|[m 
+[36m|[m * [33m1f13998[m[33m ([m[1;32mforge[m[33m)[m road repair: smith/<name> branches
+[36m|[m[36m/[m  
+[36m|[m *   [33m29fffb7[m[33m ([m[1;35mrefs/stash[m[33m)[m On main: parked road files while landing radar
+[36m|[m [1;32m|[m[1;33m\[m  
+[36m|[m [1;32m|[m * [33m75e3eb1[m index on main: f91c345 radar: the horizon scan — concurrent census, blackboard, integrity intercept
+[36m|[m [1;32m|[m[1;32m/[m  
+[36m|[m * [33mf91c345[m radar: the horizon scan — concurrent census, blackboard, integrity intercept
+[36m|[m * [33m7ffd858[m radar: the horizon scan — concurrent census, blackboard, integrity intercept
+[36m|[m[36m/[m  
+* [33m37b245c[m the forging road: smith + FORGING ceremony
+* [33m8f6fbfb[m add workorder and inspect skills
+* [33m9347922[m the workbench: build a skill, prove it, forge it into a use command
+* [33m2c84317[m fix collector's proof; add the sandbox — try code in a ground of its own
+* [33m692682f[m the growing ear: he learns your words, bound to commands he knows
+* [33mc0e30d3[m self test: he reads his code and runs each proof, reports what he can prove
+* [33mfb39002[m steward: stop swallowing commands; read messy phrasing
