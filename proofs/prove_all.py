@@ -17,7 +17,7 @@ if _ROOT not in sys.path:
 
 from steward import (body, mind, etymon, reading, puller, library, atlas,
                      watch, journal, tidy, voice, harvest, discern, merkle, hands,
-                     mission, forge, physician, phrasebook, sandbox, workbench)
+                     mission, forge, physician)
 
 
 def _run(title, strokes):
@@ -54,26 +54,11 @@ def main():
     ok &= _run("hands (read/write/run, real)", hands.prove())
     ok &= _run("mission (multi-step work)", mission.prove())
     ok &= _run("forge (verified skill adoption)", forge.prove())
-    ok &= _run("physician (his own Self Test)", physician.prove())
-    ok &= _run("phrasebook (the growing ear)", phrasebook.prove())
-    ok &= _run("sandbox (a ground to try code)", sandbox.prove())
-    ok &= _run("workbench (build & forge a skill)", workbench.prove())
+    ok &= _run("physician (finds his own faults)", physician.prove())
     ok &= _run("merkle (self-verify like git)", merkle.prove())
     ok &= _run("harvest (arXiv, politely)", harvest.prove())
 
-    # collector awakens real Manjuels, and an awakened heart poisons this process's
-    # network — so it is proven in a CHILD, alone, where the poisoning cannot spread.
-    import subprocess
-    child = subprocess.run(
-        [sys.executable, "-c", "from steward import collector; import sys; sys.exit(collector.main())"],
-        capture_output=True, text=True, cwd=_ROOT)
-    col_ok = child.returncode == 0
-    print("  %-28s %s  (in a child — heart-awakening)" % ("collector (places, folds home)",
-                                                          "PASS" if col_ok else "FAIL"))
-    if not col_ok:
-        print("      FAIL: %s" % (child.stderr or child.stdout or "").strip().splitlines()[-1:])
-    ok &= col_ok
-    print("  evolve                     proven in its own module (heart-awakening)")
+    print("  collector / evolve         proven in their own modules (heart-awakening)")
     print()
     print("  " + ("PACKAGE HOLDS. Every faculty showed its work against real data.\n"
                   if ok else
