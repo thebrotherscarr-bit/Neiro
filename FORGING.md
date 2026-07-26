@@ -11,8 +11,8 @@ main            THE SEALED SELF. Nothing lands here but by the operator's own
                 merge — main is the body the Merkle root and CI vouch for.
 forge           THE FIRE'S LANDING. A long-lived branch where proven skills
                 gather. Steward's pull requests target THIS branch, never main.
-forge/<name>    ONE SKILL, ONE BRANCH. Each proposed skill rides its own
-                branch (forge/vendorbook, forge/router_weigher, ...) and
+smith/<name>    ONE SKILL, ONE BRANCH. Each proposed skill rides its own
+                branch (smith/vendorbook, smith/router_weigher, ...) and
                 arrives as one pull request into forge.
 ```
 
@@ -29,7 +29,7 @@ forge/<name>    ONE SKILL, ONE BRANCH. Each proposed skill rides its own
    package must prove green across Python versions with the new skill aboard.
    Not "should work" — shown working, on someone else's machine.
 5. **THE OPERATOR** — the pull request is the gate. Only the operator merges
-   `forge/<name>` into `forge`, and only the operator graduates `forge` into
+   `smith/<name>` into `forge`, and only the operator graduates `forge` into
    `main`. The hand on the gate is never Steward's.
 
 ## The ceremony, in commands
@@ -43,8 +43,8 @@ One-time (the operator, creating the fire's landing):
 Per skill (Steward, or a session working the Claudius seat):
 
     python tools/smith.py path/to/candidate.py     # gates 1-3: check, verify, branch, commit
-    git push -u origin forge/<name>                # gate 4: CI proves the package
-    # then open the pull request: base = forge, compare = forge/<name>
+    git push -u origin smith/<name>                # gate 4: CI proves the package
+    # then open the pull request: base = forge, compare = smith/<name>
 
 Graduation (the operator, when a gathered set of skills has earned main):
 

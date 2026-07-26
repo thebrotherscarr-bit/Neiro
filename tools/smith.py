@@ -85,7 +85,7 @@ def main():
         return 1
 
     # GATE 3 — witnessed: skills/<name>.py on forge/<name>, one commit
-    branch = "forge/" + name
+    branch = "smith/" + name
     dest = os.path.join(ROOT, "skills", name + ".py")
     if os.path.exists(dest):
         print("HELD — skills/%s.py already exists; a replacement deserves its own "
