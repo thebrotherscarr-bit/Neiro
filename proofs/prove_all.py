@@ -15,9 +15,10 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from steward import (body, mind, etymon, reading, puller, library, atlas,
-                     watch, journal, tidy, voice, harvest, discern, merkle, hands,
-                     mission, forge, physician, phrasebook, sandbox, workbench, radar)
+from steward import (body, mind, etymon, reading, puller, library,
+                     journal, tidy, voice, harvest, discern, hands,
+                     mission, forge, physician, phrasebook, sandbox, workbench)
+from neiro import atlas, watch, radar, merkle
 
 
 def _run(title, strokes):
@@ -83,7 +84,7 @@ def main():
 
     import runpy
     rc = 0
-    for cap in ("prove_agent.py", "prove_memory.py"):
+    for cap in ("prove_agent.py", "prove_memory.py", "prove_hypercore.py", "prove_respawn.py"):
         try:
             runpy.run_path(os.path.join(os.path.dirname(__file__), cap), run_name="__main__")
         except SystemExit as e:
