@@ -17,7 +17,8 @@ if _ROOT not in sys.path:
 
 from steward import (body, mind, etymon, reading, puller, library,
                      journal, tidy, voice, harvest, discern, hands,
-                     mission, forge, physician, phrasebook, sandbox, workbench)
+                     mission, forge, physician, phrasebook, sandbox, workbench,
+                     scale)
 from neiro import atlas, watch, radar, merkle
 
 
@@ -58,6 +59,7 @@ def main():
     ok &= _run("forge (verified skill adoption)", forge.prove())
     ok &= _run("physician (his own Self Test)", physician.prove())
     ok &= _run("phrasebook (the growing ear)", phrasebook.prove())
+    ok &= _run("scale (the voices, weighed)", scale.prove())
     ok &= _run("sandbox (a ground to try code)", sandbox.prove())
     ok &= _run("workbench (build & forge a skill)", workbench.prove())
     ok &= _run("merkle (self-verify like git)", merkle.prove())
