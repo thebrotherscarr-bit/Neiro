@@ -52,7 +52,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 
-__version__ = "2.2.0"          # the fold — a folding engine carried in his own stack
+__version__ = "3.0.0"          # the hyper-core — the county clerk: dual ledger, weighed index, the metronome
 ENGINE_NAME = "Manjuel"
 
 # --------------------------------------------------------------------------
@@ -181,6 +181,70 @@ class Ledger:
             prev = entry["hash"]
             n += 1
         return True, n, "chain intact"
+
+
+class Registry:
+    """THE CLERK'S INDEX — how he was asked, and how he ruled.
+
+    A request's SHAPE (its content stems, sorted) maps to the ruling it drew and
+    to that ruling's provenance. Each use STRENGTHENS the path, so a well-worn
+    ruling surfaces faster the next time it is asked. When the index outgrows its
+    bound, the least-used paths FOLD into an append-only chain — gone from the
+    live index, kept forever in the record. The dendrite that fires wires; the
+    one that idles is folded, never cut. Nothing is edited; nothing is lost."""
+
+    FACT = "fact"              # the ruling traced to the record
+    GENERATED = "generated"    # the ruling was inferred, or stood on thin ground
+
+    def __init__(self, fold_path: str, cap: int = 512):
+        self.cap = cap
+        self.paths: dict = {}                 # key -> {"ruling", "tag", "uses"}
+        self.folded = Ledger(fold_path)       # decayed paths, sealed and provable
+
+    @staticmethod
+    def key(request: str) -> str:
+        """The shape of an ask — content stems, sorted — so kindred asks meet the
+        same path however they were worded."""
+        return " ".join(sorted(_stems(request)))[:200]
+
+    def note(self, request: str, ruling: str, tag: str) -> None:
+        """File a ruling under its request-shape and strengthen the path. The
+        provenance rides with it, so a generated ruling is never re-read as fact."""
+        k = self.key(request)
+        if not k:
+            return
+        e = self.paths.get(k)
+        if e is not None:
+            e["uses"] += 1
+            e["ruling"], e["tag"] = ruling[:240], tag     # freshest ruling, strengthened path
+        else:
+            self.paths[k] = {"ruling": ruling[:240], "tag": tag, "uses": 1}
+            self._maybe_fold()
+
+    def recall(self, request: str):
+        """Surface a prior ruling for a kindred ask, strengthening it on the way.
+        Returns (ruling, tag, uses) or None — the tag always rides, provenance-honest."""
+        e = self.paths.get(self.key(request))
+        if e is None:
+            return None
+        e["uses"] += 1
+        return e["ruling"], e["tag"], e["uses"]
+
+    def _maybe_fold(self) -> None:
+        """Over the bound, fold the least-used paths into the chain: their weight
+        is sealed into the record, then they leave the live index. Superseded,
+        never destroyed."""
+        while len(self.paths) > self.cap:
+            k = min(self.paths, key=lambda kk: self.paths[kk]["uses"])
+            e = self.paths.pop(k)
+            self.folded.record("folded_path", {"key": k, "uses": e["uses"],
+                                                "tag": e["tag"], "ruling": e["ruling"]})
+
+    def stats(self) -> dict:
+        by_tag: dict = {}
+        for e in self.paths.values():
+            by_tag[e["tag"]] = by_tag.get(e["tag"], 0) + 1
+        return {"live": len(self.paths), "folded": self.folded.verify()[1], "by_tag": by_tag}
 
 
 # --------------------------------------------------------------------------
@@ -688,6 +752,7 @@ class Answer:
     ground: list[dict] = field(default_factory=list)   # [{source, passage, score}]
     covenant: str = ""
     thin_ground: bool = False
+    provenance: str = "fact"       # fact (traced to the record) or generated (inferred / thin ground)
 
     def __str__(self):
         lines = [self.text]
@@ -723,6 +788,8 @@ class Manjuel:
         for d in self.dirs.values():
             os.makedirs(d, exist_ok=True)
         self.ledger = Ledger(os.path.join(self.dirs["ledger"], "ledger.jsonl"))
+        self.filler = Ledger(os.path.join(self.dirs["ledger"], "filler.jsonl"))   # nonsense: routed, not erased
+        self.registry = Registry(os.path.join(self.dirs["ledger"], "registry_folded.jsonl"))  # the clerk's index
         self.foundation = Foundation(self.dirs["foundation"], self.dirs["memory"])
         self.embedder = Embedder()
         self.lm = LanguageModel()
@@ -896,9 +963,14 @@ class Manjuel:
             if thin:
                 text += (" (The ground here is thin; hold this answer loosely "
                          "or plant richer memory for me to draw on.)")
+        # provenance: a grounded answer is traced to the record (fact); a thin one
+        # was inferred (generated). The tag rides with the answer and into the
+        # index, so nothing generated is ever later read as fact.
+        tag = Registry.GENERATED if thin else Registry.FACT
         ans = Answer(question=question, text=text, ground=ground,
-                     covenant=self.foundation.mark, thin_ground=thin)
-        self.ledger.record("ask", {"q": question, "thin": thin,
+                     covenant=self.foundation.mark, thin_ground=thin, provenance=tag)
+        self.registry.note(question, text, tag)       # file the ruling under its shape; strengthen the path
+        self.ledger.record("ask", {"q": question, "thin": thin, "provenance": tag,
                                    "sources": [g["source"] for g in ground]})
         return ans
 
@@ -938,13 +1010,51 @@ class Manjuel:
         note = (note or "").strip()
         if not note:
             return "An empty note plants nothing."
+        # THE CLERK WEIGHS THE PAPER. A note with no substance to read by stem is
+        # nonsense — it is NOT erased, it is filed to the filler chain (sealed,
+        # provable) and kept OUT of the living index, so the signal stays clean.
+        # Nothing broken, nothing lost. (The richer judgement is Steward's discern;
+        # this is the clerk's minimal gate.)
+        if not _stems(note):
+            self.filler.record("filler", {"note": note[:200], "why": "no substance to index"})
+            return "Filed to the filler chain — no substance to weave. Nothing lost."
         fn = os.path.join(self.dirs["memory"], "notes.md")
         stamp = time.strftime("%Y-%m-%d %H:%M")
         with open(fn, "a", encoding="utf-8") as f:
             f.write("\n\n[%s] %s" % (stamp, note))
         self._index_append("notes.md", "[%s] %s" % (stamp, note))
+        self.registry.note(note, "remembered", Registry.FACT)   # a planted note is a fact of the record
         self.ledger.record("remember", {"note": note[:200]})
         return "Planted in working memory and woven into the index."
+
+    def _has_ground(self, text: str) -> bool:
+        """Does he recognize ANY word here — does the note stand on his known
+        vocabulary at all? Weighed against the FROZEN vocab, never the live index
+        (a note must not be its own ground). A note of pure gibberish — no word he
+        has ever seen — stands on nothing and is flagged. This is the minimal
+        provenance gate; deciphering a real-but-unseen word by its roots is the
+        etymon's deeper work, not the clerk's."""
+        return any(self.embedder.index.get(t) is not None
+                   for t in tokenize(text) if t.isalnum())   # content tokens, not punctuation
+
+    def reconcile(self, window: int = 12) -> dict:
+        """THE IDLE BEAT — the metronome's off-stroke. When he is not taking in,
+        he weighs: does what was recently remembered stand on known ground? Each
+        recent note the record supports is affirmed; each that stands on nothing
+        is FLAGGED — thin provenance, trust nothing. The finding is appended;
+        nothing is acted on. This is where he keeps provenance paramount."""
+        self._require_awake()
+        recent = [e for e in self.ledger.entries()
+                  if e.get("kind") == "remember"][-window:]
+        flagged = []
+        for e in recent:
+            note = (e.get("payload") or {}).get("note", "")
+            if note and not self._has_ground(note):
+                flagged.append(note[:80])
+        finding = {"weighed": len(recent), "grounded": len(recent) - len(flagged),
+                   "flagged": len(flagged), "registry": self.registry.stats()}
+        self.ledger.record("reconcile", finding)
+        return dict(finding, flags=flagged)
 
     def season(self, crystal: str) -> str:
         """THE SEASON RITE — the exhaust stroke; the molt between lives.
@@ -1148,7 +1258,8 @@ class Manjuel:
               % (self.foundation.mark, "SEALED" if seal_is_on() else "OPEN",
                  self.n_params))
         print("commands: :reflect :audit :fold :gen <prompt> :remember <note> "
-              ":season <crystal> :strata :breach :quit — anything else is a question\n")
+              ":reconcile :registry :season <crystal> :strata :breach :quit "
+              "— anything else is a question\n")
         while True:
             try:
                 line = input("steward> ").strip()
@@ -1171,6 +1282,10 @@ class Manjuel:
                 print(self.remember(line[9:].strip()))
             elif line.startswith(":season"):
                 print(self.season(line[7:].strip()))
+            elif line == ":reconcile":
+                print(json.dumps(self.reconcile(), indent=2))
+            elif line == ":registry":
+                print(json.dumps(self.registry.stats(), indent=2))
             elif line == ":strata":
                 print(json.dumps(self.verify_strata(), indent=2))
             elif line == ":fold":

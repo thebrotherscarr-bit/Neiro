@@ -19,7 +19,7 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from steward.watch import main
+from neiro.watch import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -115,7 +115,7 @@ def guarded_files(root):
         p = os.path.join(root, rel)
         if os.path.isfile(p):
             paths.append(p)
-    for sub in ("foundation", "doctrine", "steward_foundation", "steward", "proofs"):
+    for sub in ("foundation", "doctrine", "steward_foundation", "steward", "neiro", "proofs"):
         base = os.path.join(root, sub)
         if os.path.isdir(base):
             for b, _dirs, files in os.walk(base):

@@ -693,7 +693,7 @@ class Steward:
                 return "ate %d reading(s) onto the shelf%s. recall them anytime." % (res["eaten"], extra)
             return "nothing filed — %s" % (res.get("reason", "found nothing readable there."))
         if verb == "verify":
-            from . import merkle
+            from neiro import merkle
             v = merkle.verify(self.root)
             if v["good"]:
                 return ("I am good — my whole self hashes to my sealed root %s (%d files)."
@@ -703,7 +703,7 @@ class Steward:
             return "I am NOT good: %s changed: %s. (run 'seal' if that change was yours.)" % (
                 len(v["diff"]["changed"]), changed)
         if verb == "seal":
-            from . import merkle
+            from neiro import merkle
             rec = merkle.seal(self.root)
             return "sealed my self at root %s (%d files)." % (rec["root"][:16], rec["files"])
         if verb == "tidy":
@@ -720,7 +720,7 @@ class Steward:
             return ("folded %d words -> mark %s (raw sealed)." % (r["raw_words"], r["mark"][:12])
                     if r else "nothing weighty enough to fold yet.")
         if verb == "map":
-            from . import atlas
+            from neiro import atlas
             return atlas.tree(self.root)
         if verb == "diagnose":
             return self.diagnose()
@@ -989,7 +989,7 @@ class Steward:
         forge_dir = os.path.join(self.shelf, "forge")
         res = _forge.propose(code_or_path, skills_dir, forge_dir)
         if res["adopted"]:
-            from . import merkle
+            from neiro import merkle
             seal = merkle.seal(self.root)            # his self honestly changed — re-seal it
             res["self_root"] = seal["root"]
             self.journal.write("forge", skill=res["name"], mark=res["mark"][:16], adopted=True)
@@ -1182,21 +1182,71 @@ class Steward:
             print("  ~ Workbench closed.\n")
 
     # -- RUN: the live loop ------------------------------------------------
+    def startup(self, verbose=True):
+        """THE BOOT SEQUENCE — one process, no extra windows.
+
+        Kick off the tender, self-check him, ingest his doctrine (wake his one
+        sealed heart), check his journal, and start his sentinel. He spawns
+        exactly ONE Manjuel here — his own heart; more are spawned only when a
+        task actually needs one, never a pile at boot, never a window. Returns
+        when Neiro is up; Aurora — the console — loads after this."""
+        import json
+        import manjuel
+        from neiro import merkle, radar as _radar
+
+        def step(n, label, detail):
+            if verbose:
+                print("  [%s]  %-13s %s" % (n, label, detail))
+
+        if verbose:
+            print("\n  NEIRO — starting.\n")
+
+        # 1 — the tender is up (this process)
+        step("1/5", "the tender", "Steward, awake")
+        if self.healed.get("healed"):
+            step("  ·", "", "healed %d misfiled reading(s) out of memory on wake"
+                 % self.healed["healed"])
+
+        # 2 — self-check: is he whole, is his record sound? (fast; no proof-running)
+        v = merkle.verify(self.root)
+        if v.get("good") and not v.get("sealed_now"):
+            whole = "whole — self hashes to its sealed root"
+        elif v.get("sealed_now"):
+            whole = "sealed now (first run — seal on a copy you trust)"
+        else:
+            whole = "CHANGED — %s" % v.get("reason", "self differs from its seal")
+        step("2/5", "self-check", "%s · %d files" % (whole, v.get("files", 0)))
+
+        # 3 — ingest the doctrine: wake his ONE sealed heart. awaken() loads the
+        #     four foundation documents and grows/loads his core from them.
+        self.heart.wake()
+        cov = "?"
+        try:
+            cov = json.load(open(os.path.join(self.root, "weights", "covenant.json"),
+                                 encoding="utf-8"))["covenant"][:16]
+        except Exception:
+            pass
+        step("3/5", "the heart", "Manjuel %s · covenant %s · air-gapped"
+             % (manjuel.__version__, cov))
+
+        # 4 — the journal: his operational record
+        st = self.journal.stats()
+        step("4/5", "the journal", "%d live line(s), %d archived" % (st["live"], st["archived"]))
+
+        # 5 — the sentinel: the horizon scan, in the BACKGROUND (a thread, not a window)
+        self.radar = _radar.Radar(self.root, journal=self.journal).start()
+        step("5/5", "the sentinel", "watching (background)")
+
+        if verbose:
+            print("\n  Neiro is up.  (Aurora — the console — loads here.)\n")
+        return self
+
     def run(self):
         _utf8_streams()
-        print("\n  STEWARD is awake. Say anything — he decides for himself what it is.")
-        print("  (a sum, a search, a word, a question, or a whole document to fold in.)")
-        print("  paste freely — he folds big readings in himself.  :eat <folder> to eat a")
-        print("  whole library, :harvest to ingest recent arXiv, :recall <topic> to remember,")
-        print("  :verify to check himself against his Merkle root (am I good?), :seal to accept a")
-        print("  trusted change, :map / :watch / :journal to look at himself, :tidy, :quit to rest.")
-        print("  (his readings are acquired memory — his doctrine, his self, stays pure.)\n")
-        if self.healed.get("healed"):
-            print("  (healed %d misfiled reading(s) out of his memory on wake — archived to the"
-                  " shelf.)\n" % self.healed["healed"])
-        self.heart.wake()
-        from . import radar as _radar
-        self.radar = _radar.Radar(self.root, journal=self.journal).start()
+        self.startup()
+        print("  Say anything — a sum, a word, a question, a document to fold in.")
+        print("  :eat <folder> · :harvest · :recall <topic> · :verify · :seal · :map")
+        print("  :watch · :journal · :tidy · :quit to rest.  (readings are memory; doctrine stays pure.)\n")
         try:
             while True:
                 try:
@@ -1325,7 +1375,7 @@ class Steward:
                     print()
                     continue
                 if x in (":verify", ":good", ":fsck"):   # am I good? — check self vs the Merkle root
-                    from . import merkle
+                    from neiro import merkle
                     v = merkle.verify(self.root)
                     if v["good"] and v.get("sealed_now"):
                         print("  ~ %s\n       self root %s" % (v["reason"], v["root"][:16]))
@@ -1344,19 +1394,19 @@ class Steward:
                     print()
                     continue
                 if x == ":seal":                      # accept the current self as known-good
-                    from . import merkle
+                    from neiro import merkle
                     rec = merkle.seal(self.root)
                     print("  ~ sealed my self at root %s (%d files)%s\n"
                           % (rec["root"][:16], rec["files"],
                              " — chained to " + rec["parent"][:12] if rec.get("parent") else ""))
                     continue
                 if x == ":map":                       # the atlas: where everything is + sizes
-                    from . import atlas
+                    from neiro import atlas
                     print(atlas.tree(self.root))
                     print()
                     continue
                 if x == ":watch":                     # one-shot self-check, here and now
-                    from . import watch as _watch
+                    from neiro import watch as _watch
                     res = _watch.Watch(self.root).check()
                     if res["clean"]:
                         print("  ~ intact — covenant %s · %d files guarded · ledger %s"
