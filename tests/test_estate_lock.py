@@ -16,15 +16,14 @@ SHA = {
     "aurora": "d" * 40,
 }
 
+# A retired council seat: its model must not reach the lock.
 SEAT_ROUTER = '{\n  "model": "qwen3.5:4b",\n  "office": "MANJUEL"\n}\n'
-SEAT_STEWARD = '{\n  "model": "gpt-oss:20b"\n}\n'
 
 FILES = {
     ("manjuel", "pyproject.toml"): '[project]\nname = "manjuel"\nversion = "0.2.6"\n',
     ("manjuel", "manjuel/__init__.py"): '__version__ = "0.2.6"\n',
     ("manjuel", "manjuel/skills.py"): 'EMBED_MODEL = "nomic-embed-text-v2-moe:latest"\n',
     ("manjuel", "us/seat_router.us"): SEAT_ROUTER,
-    ("manjuel", "us/seat_steward.us"): SEAT_STEWARD,
     ("steward", "pyproject.toml"): '[project]\nname = "steward"\nversion = "0.7.0"\n',
     ("jesster", "secondbrain/package.json"): '{"name": "secondbrain-local", "version": "0.1.0"}',
     ("aurora", "VERSION"): "0.2.6\n",
@@ -43,11 +42,12 @@ TAGS = {
 
 
 class FakeGit:
-    """Answers the three git reads the tool makes, per part, from tables."""
+    """Answers the git reads the tool makes, per part, from tables. `files` overrides FILES."""
 
-    def __init__(self, heads=None, mains=None):
+    def __init__(self, heads=None, mains=None, files=None):
         self.heads = dict(SHA, **(heads or {}))
         self.mains = dict(SHA, **(mains or {}))
+        self.files = {**FILES, **(files or {})}
         self.calls = []
 
     def __call__(self, path, *args):
@@ -59,11 +59,9 @@ class FakeGit:
         if args[0] == "show":
             commit, _, name = args[1].partition(":")
             assert commit == self.mains[part], (commit, part)
-            if (part, name) not in FILES:
+            if (part, name) not in self.files:
                 raise el.GitError(f"no {name}")
-            return FILES[(part, name)]
-        if args[0] == "ls-tree":
-            return "\n".join(n for (p, n) in FILES if p == part and n.startswith("us/"))
+            return self.files[(part, name)]
         raise AssertionError(args)
 
 
@@ -79,6 +77,15 @@ def fake_http(tags=TAGS, version="0.40.14"):
 
 
 PATHS = {p: p for p in el.PARTS}
+
+
+def same_release(tag="secondbrain-b62"):
+    return lambda: tag
+
+
+def check(lock, git=None, http_get=None, release=None, **kw):
+    return el.check(lock, PATHS, git=git or FakeGit(), http_get=http_get or fake_http(),
+                    host="h", release=release or same_release(), **kw)
 
 
 def make_lock(**kw):
@@ -129,15 +136,19 @@ class Generate(unittest.TestCase):
         by = {m["name"]: m for m in lock["models"]}
         self.assertEqual(by["steward:1"]["digest"], "1" * 64)
         self.assertEqual(by["steward:1"]["size"], 10)
-        self.assertEqual(by["gpt-oss:20b"]["used_by"], ["manjuel:steward", "steward"])
-        self.assertEqual(by["qwen3.5:4b"]["used_by"], ["manjuel:router"])
+        self.assertEqual(by["gpt-oss:20b"]["used_by"], ["steward"])
         self.assertEqual(by["nomic-embed-text-v2-moe:latest"]["used_by"], ["manjuel:embed"])
         self.assertEqual([m["name"] for m in lock["models"]], sorted(by))
 
+    def test_the_retired_councils_seat_models_are_not_locked(self):
+        names = {m["name"] for m in make_lock()["models"]}
+        self.assertNotIn("qwen3.5:4b", names)
+        self.assertEqual(names, set(el.STEWARD_MODELS) | {"nomic-embed-text-v2-moe:latest"})
+
     def test_a_declared_model_not_installed_is_recorded_without_a_digest(self):
-        tags = {"models": [m for m in TAGS["models"] if m["name"] != "qwen3.5:4b"]}
+        tags = {"models": [m for m in TAGS["models"] if m["name"] != "steward:1"]}
         lock = make_lock(http_get=fake_http(tags=tags))
-        m = {m["name"]: m for m in lock["models"]}["qwen3.5:4b"]
+        m = {m["name"]: m for m in lock["models"]}["steward:1"]
         self.assertIsNone(m["digest"])
         self.assertIsNone(m["size"])
 
@@ -173,16 +184,14 @@ class Validate(unittest.TestCase):
 
 class Check(unittest.TestCase):
     def test_matching_state_reports_no_drift(self):
-        lock = make_lock()
-        drift = el.check(lock, PATHS, git=FakeGit(), http_get=fake_http(), host="h")
-        self.assertEqual(drift, [])
+        self.assertEqual(check(make_lock()), [])
 
     def test_a_moved_checkout_and_a_changed_digest_are_drift(self):
         lock = make_lock()
         tags = {"models": [dict(m, digest="9" * 64) if m["name"] == "steward:1" else m
                            for m in TAGS["models"]]}
         git = FakeGit(heads={"steward": "f" * 40}, mains={"jesster": "0" * 40})
-        drift = el.check(lock, PATHS, git=git, http_get=fake_http(tags=tags, version="0.41.0"), host="h")
+        drift = check(lock, git=git, http_get=fake_http(tags=tags, version="0.41.0"))
         text = "\n".join(drift)
         self.assertIn("steward", text)
         self.assertIn("HEAD", text)
@@ -196,15 +205,120 @@ class Check(unittest.TestCase):
         def down(url):
             raise OSError("refused")
 
-        drift = el.check(make_lock(), PATHS, git=FakeGit(), http_get=down, host="h")
+        drift = check(make_lock(), http_get=down)
         self.assertTrue(any("ollama" in d for d in drift))
+
+    def test_a_part_whose_version_moved_is_drift(self):
+        for part, name, text, want in [
+            ("manjuel", "pyproject.toml", '[project]\nversion = "0.2.7"\n', None),
+            ("steward", "pyproject.toml", '[project]\nversion = "0.8.0"\n', "0.8.0"),
+            ("jesster", "secondbrain/package.json", '{"version": "0.2.0"}', "0.2.0"),
+            ("aurora", "VERSION", "0.2.7\n", "0.2.7"),
+        ]:
+            with self.subTest(part=part):
+                drift = check(make_lock(), git=FakeGit(files={(part, name): text}))
+                self.assertEqual(len(drift), 1, drift)
+                self.assertTrue(drift[0].startswith(f"{part}: version"), drift)
+                if want:
+                    self.assertIn(f"version is {want}, lock has", drift[0])
+
+    def test_a_newer_jesster_release_is_drift(self):
+        drift = check(make_lock(), release=same_release("secondbrain-b65"))
+        self.assertEqual(drift, ["jesster: latest release is secondbrain-b65, lock has secondbrain-b62"])
+
+    def test_a_build_that_disagrees_with_the_release_is_drift(self):
+        lock = make_lock()
+        lock["parts"]["jesster"]["build"] = 61
+        self.assertEqual(check(lock), ["jesster: build is 62, lock has 61"])
+
+    def test_an_unreadable_release_is_drift(self):
+        self.assertEqual(check(make_lock(), release=lambda: None),
+                         ["jesster: latest release unreadable"])
+
+    def test_models_declared_and_locked_must_agree(self):
+        lock = make_lock()
+        lock["models"] = [m for m in lock["models"] if m["name"] != "steward:1"]
+        lock["models"].append({"name": "qwen3.5:4b", "digest": None, "size": None,
+                               "used_by": ["manjuel:router"]})
+        tags = {"models": [m for m in TAGS["models"] if m["name"] != "qwen3.5:4b"]}
+        drift = check(lock, http_get=fake_http(tags=tags))
+        self.assertIn("model steward:1: declared, not in the lock", drift)
+        self.assertIn("model qwen3.5:4b: in the lock, declared by no part", drift)
 
     def test_cli_check_warns_by_default_and_strict_exits_one(self):
         lock = make_lock()
         tags = {"models": [m for m in TAGS["models"] if m["name"] != "steward:1"]}
-        args = dict(git=FakeGit(), http_get=fake_http(tags=tags), host="h")
+        args = dict(git=FakeGit(), http_get=fake_http(tags=tags), host="h",
+                    release=same_release())
         self.assertEqual(el.run_check(lock, PATHS, strict=False, out=lambda s: None, **args), 0)
         self.assertEqual(el.run_check(lock, PATHS, strict=True, out=lambda s: None, **args), 1)
+
+
+class FakeApi:
+    """The GitHub API's GETs, from FakeGit's tables: path -> JSON or raw text."""
+
+    def __init__(self, git=None, release="secondbrain-b62"):
+        self.git = git or FakeGit()
+        self.release = release
+        self.paths = []
+        self.slug = {v: k for k, v in el.REPOS.items()}
+
+    def __call__(self, path, raw):
+        self.paths.append(path)
+        _, _, owner, name, kind, *rest = path.split("/", 5)
+        part = self.slug[f"{owner}/{name}"]
+        if kind == "commits" and rest == ["main"] and not raw:
+            return {"sha": self.git.mains[part]}
+        if kind == "releases" and rest == ["latest"] and not raw:
+            if self.release is None:
+                raise OSError("404")
+            return {"tag_name": self.release}
+        if kind == "contents" and raw:
+            fname, _, ref = rest[0].partition("?ref=")
+            if (part, fname) not in self.git.files:
+                raise OSError("404")
+            return self.git.files[(part, fname)]
+        raise AssertionError(path)
+
+
+class Remote(unittest.TestCase):
+    """check --remote: each part's main and Jesster's release from the GitHub API, no Ollama."""
+
+    def remote(self, lock, api):
+        def no_ollama(url):
+            raise AssertionError(f"remote check reached Ollama: {url}")
+
+        return el.check(lock, dict(el.REPOS), git=el.GitHubGit(api), http_get=no_ollama,
+                        release=lambda: el.github_jesster_release(api),
+                        refs=("origin/main",), ollama=False)
+
+    def test_matching_mains_report_no_drift(self):
+        api = FakeApi()
+        self.assertEqual(self.remote(make_lock(), api), [])
+        self.assertIn("/repos/thebrotherscarr-bit/Atlas/contents/VERSION?ref=" + SHA["aurora"],
+                      api.paths)
+
+    def test_a_moved_main_a_new_version_and_a_new_release_are_drift(self):
+        git = FakeGit(mains={"steward": "f" * 40},
+                      files={("aurora", "VERSION"): "0.3.0\n"})
+        drift = self.remote(make_lock(), FakeApi(git, release="secondbrain-b65"))
+        self.assertEqual(drift, [
+            f"steward: origin/main is {'f' * 12}, lock has {'b' * 12}",
+            "aurora: version is 0.3.0, lock has 0.2.6",
+            "jesster: latest release is secondbrain-b65, lock has secondbrain-b62",
+        ])
+
+    def test_an_unreachable_api_is_drift_not_a_crash(self):
+        def down(path, raw):
+            raise OSError("unreachable")
+
+        drift = self.remote(make_lock(), down)
+        self.assertEqual(len(drift), 5, drift)
+        self.assertTrue(all("unreadable" in d for d in drift), drift)
+
+    def test_head_is_not_read_remotely(self):
+        with self.assertRaises(el.GitError):
+            el.GitHubGit(FakeApi())(el.REPOS["manjuel"], "rev-parse", "HEAD")
 
 
 class OllamaHost(unittest.TestCase):

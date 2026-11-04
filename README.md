@@ -22,7 +22,9 @@ version of each part runs with which, and proves them together.
 - `tools/estate_lock.py` — the tool that writes and checks the lock
   (Python 3.13, standard library only). Its tests are in `tests/`.
 - `.github/workflows/estate.yml` — the integration check. It validates the
-  lock, then checks out each part at its locked commit and runs that part's
+  lock, fails if the lock is behind any part's main, version or Jesster's
+  latest release (`check --remote --strict`, read from the GitHub API), then
+  checks out each part at its locked commit and runs that part's
   own fast, offline tests. No model, no GPU. Runner images, actions (by full
   commit SHA), Python, Node and Go are pinned; there is no update bot.
 
@@ -35,6 +37,12 @@ ground's usual layout (or named with `--manjuel`, `--steward`, `--jesster`,
     python tools/estate_lock.py generate   # writes estate.lock.json from each origin/main
     python tools/estate_lock.py check      # prints any drift; exit 0
     python tools/estate_lock.py check --strict   # exit 1 on drift
+    python tools/estate_lock.py check --remote --strict   # the CI's check: GitHub, no Ollama
+
+`check` compares each checkout's HEAD and `origin/main`, each part's version,
+Jesster's latest release and build, the models the parts declare, and
+Ollama's version and digests. `--remote` reads each part's main and the
+release from the GitHub API instead, and skips Ollama.
 
 `generate` reads each checkout's `origin/main` as it is (it never fetches),
 Jesster's latest release tag through `gh`, and Ollama's `/api/version` and
@@ -45,8 +53,9 @@ with a null digest and reported.
 
 - **The Archive never goes on GitHub.** Not a file, a path, a log or a
   fixture from it, in any branch or bundle. This repository is public.
-- **Versions are recorded, drift is warned.** The lock says what ran
-  together; `check` reports where the machine differs. It never refuses.
+- **Versions are recorded; a stale lock is refused in CI.** The lock says
+  what runs together; `check` reports where the machine differs and warns.
+  The CI's `check --remote --strict` fails while the lock is behind a part.
 - Keys and `.env` are never committed.
 
 ## Licence

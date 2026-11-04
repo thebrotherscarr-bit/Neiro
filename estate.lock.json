@@ -1,22 +1,22 @@
 {
-  "generated_at": "2026-11-04T18:23:30Z",
+  "generated_at": "2026-11-04T19:14:57Z",
   "parts": {
     "manjuel": {
       "repo": "thebrotherscarr-bit/Manjuel",
       "version": "0.2.6",
-      "commit": "e960a07f49358f90ba222d302874b905f13c0863"
+      "commit": "afec412261ae22a5b3c54293a8a8013717f24a69"
     },
     "steward": {
       "repo": "thebrotherscarr-bit/Steward",
       "version": "0.7.0",
-      "commit": "77b7f4b0cc36e7345a6cc20f5a74709cf1dbc9fb"
+      "commit": "4eccc76ad4eda49029cb9de92f29afd298a53825"
     },
     "jesster": {
       "repo": "thebrotherscarr-bit/Jesster",
       "version": "0.1.0",
-      "commit": "3535ae61f421bb84347bc557fe154a4756bac3c7",
-      "build": 62,
-      "release": "secondbrain-b62"
+      "commit": "70d3e6142cbfa9db251de193f821c43fb3d3f9f8",
+      "build": 65,
+      "release": "secondbrain-b65"
     },
     "aurora": {
       "repo": "thebrotherscarr-bit/Atlas",
@@ -29,14 +29,6 @@
   },
   "models": [
     {
-      "name": "deepseek-r1:8b",
-      "digest": null,
-      "size": null,
-      "used_by": [
-        "manjuel:jesster"
-      ]
-    },
-    {
       "name": "embeddinggemma-2:270m",
       "digest": "c21dd30c1e38444d3b4faa091407b6fa97221447b4965d74931d43d7f09bbbfd",
       "size": 303957438,
@@ -45,31 +37,11 @@
       ]
     },
     {
-      "name": "gemma4:12b",
-      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
-      "size": 7556508396,
-      "used_by": [
-        "manjuel:judge"
-      ]
-    },
-    {
       "name": "gpt-oss:20b",
       "digest": "f38aa0c53da5f8c49d08c43a99df24ff53167fe68e24664a7777288e7656fdfe",
       "size": 13793441566,
       "used_by": [
-        "manjuel:steward",
         "steward"
-      ]
-    },
-    {
-      "name": "llama3.2:latest",
-      "digest": null,
-      "size": null,
-      "used_by": [
-        "manjuel:morning_reviewer",
-        "manjuel:neiro",
-        "manjuel:quartermaster",
-        "manjuel:security_guardian"
       ]
     },
     {
@@ -81,39 +53,11 @@
       ]
     },
     {
-      "name": "phi4-mini:latest",
-      "digest": null,
-      "size": null,
-      "used_by": [
-        "manjuel:delivery_agent",
-        "manjuel:proofreader"
-      ]
-    },
-    {
       "name": "qwen2.5-coder:14b",
       "digest": "9ec8897f747e246e970bc5cfdda85d22f1123dc2e3d34978a010a75968716849",
       "size": 8988124298,
       "used_by": [
-        "manjuel:expert_coder",
         "steward"
-      ]
-    },
-    {
-      "name": "qwen3.5:4b",
-      "digest": null,
-      "size": null,
-      "used_by": [
-        "manjuel:quality_evaluator",
-        "manjuel:router"
-      ]
-    },
-    {
-      "name": "qwen3.5:9b",
-      "digest": null,
-      "size": null,
-      "used_by": [
-        "manjuel:deep_researcher",
-        "manjuel:reasoner"
       ]
     },
     {
