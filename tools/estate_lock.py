@@ -1,15 +1,18 @@
 """The Estate lock: which versions of the four parts run together, and the models they use.
 
     python tools/estate_lock.py generate [--out estate.lock.json]
-    python tools/estate_lock.py check    [--strict]
+    python tools/estate_lock.py check    [--strict] [--remote]
     python tools/estate_lock.py validate [--commits]
 
 generate  reads each local checkout's origin/main (as it is; this tool never fetches), the
           version from that commit's own source, Jesster's latest release tag (via `gh`, or
           --jesster-release), and Ollama's version and model digests, and writes the lock.
-check     compares the local state -- each checkout's HEAD and origin/main, Ollama's version
-          and digests -- with the lock and prints the drift. Drift is a warning: exit 0,
-          unless --strict, which exits 1.
+check     compares the local state with the lock and prints the drift: each checkout's HEAD
+          and origin/main, each part's version at origin/main, Jesster's latest release and
+          build, the models the parts declare, and Ollama's version and digests. Drift is a
+          warning: exit 0, unless --strict, which exits 1.
+          --remote reads each part's main and Jesster's latest release from the GitHub API
+          instead (GET only; GITHUB_TOKEN or GH_TOKEN if set) and skips Ollama: the CI mode.
 validate  checks the lock's shape (every commit a 40-hex sha, every digest 64-hex or null).
           --commits prints `part=sha` lines for the workflow.
 
@@ -31,6 +34,7 @@ import re
 import subprocess
 import sys
 import tomllib
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -52,11 +56,14 @@ DEFAULT_PATHS = {
     "aurora": "atlas",
 }
 
+# Manjuel's council seats (us/seat_*.us) are retired: "the council and its models are
+# superseded by MAF" (2026-11-04). Manjuel's one model in the Estate is its embedder.
 # Steward's models. steward:1 is built on gpt-oss:20b (his orchestrator's default);
 # qwen2.5-coder:14b is the improvement loop's fixer; embeddinggemma-2:270m his code search.
 STEWARD_MODELS = ("steward:1", "gpt-oss:20b", "qwen2.5-coder:14b", "embeddinggemma-2:270m")
 
 DEFAULT_HOST = "http://127.0.0.1:11434"
+GITHUB_API = "https://api.github.com"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RELEASE = re.compile(r"^secondbrain-b(\d+)$")
@@ -75,7 +82,7 @@ HttpFn = Callable[[str], dict]
 
 
 def real_git(path: str, *args: str) -> str:
-    """Read-only git: rev-parse, show, ls-tree. Never status or diff."""
+    """Read-only git: rev-parse and show. Never status or diff."""
     proc = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True,
                           encoding="utf-8")
     if proc.returncode != 0:
@@ -89,16 +96,63 @@ def real_http_get(url: str) -> dict:
 
 
 def latest_jesster_release() -> str | None:
-    """The newest release tag of Jesster, via the gh CLI; None if gh is unavailable."""
+    """Jesster's latest release tag, via the gh CLI; None if gh is unavailable."""
     try:
         proc = subprocess.run(
-            ["gh", "release", "list", "--repo", REPOS["jesster"], "--limit", "1",
-             "--json", "tagName", "--jq", ".[0].tagName"],
+            ["gh", "release", "view", "--repo", REPOS["jesster"],
+             "--json", "tagName", "--jq", ".tagName"],
             capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
     tag = proc.stdout.strip()
     return tag if proc.returncode == 0 and tag else None
+
+
+# -- the GitHub API, for check --remote (read-only GETs) --------------------------------
+
+ApiFn = Callable[[str, bool], object]
+
+
+def real_github_get(path: str, raw: bool = False) -> object:
+    """GET {GITHUB_API}{path}: JSON, or the raw file when raw. The token is sent, never shown."""
+    req = urllib.request.Request(GITHUB_API + path, headers={
+        "Accept": "application/vnd.github.raw" if raw else "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "neiro-estate-lock"})
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = resp.read().decode("utf-8")
+    return body if raw else json.loads(body)
+
+
+class GitHubGit:
+    """The tool's git reads, answered by the GitHub API; `path` is the repository slug.
+
+    origin/main is the repository's main; HEAD has no meaning remotely and is refused."""
+
+    def __init__(self, api: ApiFn = real_github_get):
+        self.api = api
+
+    def __call__(self, repo: str, *args: str) -> str:
+        try:
+            if args == ("rev-parse", "origin/main"):
+                return str(self.api(f"/repos/{repo}/commits/main", False)["sha"])
+            if len(args) == 2 and args[0] == "show":
+                commit, _, name = args[1].partition(":")
+                return str(self.api(f"/repos/{repo}/contents/{urllib.parse.quote(name)}"
+                                    f"?ref={commit}", True))
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise GitError(f"github {repo} {' '.join(args)}: {e}") from e
+        raise GitError(f"github {repo}: {' '.join(args)} is not read remotely")
+
+
+def github_jesster_release(api: ApiFn = real_github_get) -> str | None:
+    """Jesster's latest release tag from the GitHub API; None if unreadable."""
+    try:
+        return str(api(f"/repos/{REPOS['jesster']}/releases/latest", False)["tag_name"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 # -- versions, read from each part's own source at the locked commit ---------------------
@@ -132,17 +186,9 @@ def part_version(part: str, git: GitFn, path: str, commit: str) -> str:
 # -- models ---------------------------------------------------------------------------------
 
 def declared_models(git: GitFn, paths: dict, commits: dict) -> dict[str, set[str]]:
-    """model name -> the parts (and Manjuel seats) that use it."""
+    """model name -> the parts that use it: Manjuel's embedder and Steward's models."""
     used: dict[str, set[str]] = {}
     mpath, mcommit = paths["manjuel"], commits["manjuel"]
-    names = git(mpath, "ls-tree", "--name-only", mcommit, "us/").splitlines()
-    for name in names:
-        base = name.rsplit("/", 1)[-1]
-        if not (base.startswith("seat_") and base.endswith(".us")):
-            continue
-        text = _show(git, mpath, mcommit, name if "/" in name else f"us/{name}")
-        for model in re.findall(r'"model":\s*"([^"]+)"', text):
-            used.setdefault(model, set()).add("manjuel:" + base[len("seat_"):-len(".us")])
     skills = _show(git, mpath, mcommit, "manjuel/skills.py")
     m = re.search(r'^EMBED_MODEL\s*=\s*"([^"]+)"', skills, re.M)
     if not m:
@@ -239,18 +285,60 @@ def commit_lines(lock: dict) -> list[str]:
 # -- check ------------------------------------------------------------------------------------
 
 def check(lock: dict, paths: dict, *, git: GitFn = real_git, http_get: HttpFn = real_http_get,
-          host: str = DEFAULT_HOST) -> list[str]:
+          host: str = DEFAULT_HOST,
+          release: Callable[[], str | None] = latest_jesster_release,
+          refs: tuple[str, ...] = ("HEAD", "origin/main"), ollama: bool = True) -> list[str]:
+    """Every way the state differs from the lock, one line each; [] when it matches.
+
+    Per part: each ref's commit, and the version read at origin/main. Jesster's latest
+    release and build. The models the parts declare at origin/main, by name. Then, unless
+    ollama=False (the remote mode: no Ollama on a runner), Ollama's version and digests."""
     drift = []
+    mains = {}
     for p in PARTS:
-        want = lock["parts"][p]["commit"]
-        for ref in ("HEAD", "origin/main"):
+        entry = lock["parts"][p]
+        want = entry["commit"]
+        for ref in refs:
             try:
                 have = git(paths[p], "rev-parse", ref)
             except GitError as e:
                 drift.append(f"{p}: {ref} unreadable ({e})")
                 continue
+            if ref == "origin/main":
+                mains[p] = have
             if have != want:
                 drift.append(f"{p}: {ref} is {have[:12]}, lock has {want[:12]}")
+        if p not in mains:
+            continue
+        try:
+            version = part_version(p, git, paths[p], mains[p])
+        except (GitError, LockError, ValueError, KeyError) as e:
+            drift.append(f"{p}: version unreadable at origin/main ({e})")
+            continue
+        if version != entry["version"]:
+            drift.append(f"{p}: version is {version}, lock has {entry['version']}")
+    jesster = lock["parts"]["jesster"]
+    tag = release()
+    m = RELEASE.match(tag or "")
+    if tag is None:
+        drift.append("jesster: latest release unreadable")
+    elif tag != jesster.get("release"):
+        drift.append(f"jesster: latest release is {tag}, lock has {jesster.get('release')}")
+    elif m and int(m.group(1)) != jesster.get("build"):
+        drift.append(f"jesster: build is {m.group(1)}, lock has {jesster.get('build')}")
+    if "manjuel" in mains:
+        try:
+            declared = set(declared_models(git, paths, mains))
+        except (GitError, LockError) as e:
+            drift.append(f"models: declarations unreadable ({e})")
+        else:
+            locked = {m["name"] for m in lock["models"]}
+            for name in sorted(declared - locked):
+                drift.append(f"model {name}: declared, not in the lock")
+            for name in sorted(locked - declared):
+                drift.append(f"model {name}: in the lock, declared by no part")
+    if not ollama:
+        return drift
     try:
         version = ollama_version(http_get, host)
         installed = installed_models(http_get, host)
@@ -324,8 +412,16 @@ def main(argv=None) -> int:
             s.add_argument("--jesster-release", help="e.g. secondbrain-b62 (default: ask gh)")
         else:
             s.add_argument("--strict", action="store_true", help="exit 1 on drift")
+            s.add_argument("--remote", action="store_true",
+                           help="read each part's main and Jesster's release from the GitHub "
+                                "API; no Ollama (the CI mode)")
     args = ap.parse_args(argv)
     host = ollama_url(getattr(args, "ollama", DEFAULT_HOST))
+
+    if args.cmd == "check" and args.remote:
+        lock = json.loads(Path(args.lock).read_text(encoding="utf-8"))
+        return run_check(lock, dict(REPOS), strict=args.strict, git=GitHubGit(),
+                         release=github_jesster_release, refs=("origin/main",), ollama=False)
 
     if args.cmd == "generate":
         lock = generate(_paths(args), host=host,
