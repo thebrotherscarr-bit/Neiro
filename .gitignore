@@ -1,23 +1,6 @@
-# Steward's runtime state — grows as he lives, NOT part of his versioned self.
-# His code, doctrine, and proofs are tracked; his memory and readings are not.
-
-# the tender's own runtime (readings, journal, inner voice, merkle seals, maps)
-shelf/
-
-# the sealed kernel's own state (living memory, ledger, grown weights, strata)
-memory/
-ledger/
-weights/
-strata/
-
-# python + os noise
 __pycache__/
 *.pyc
-*.pyo
+.env
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# scratch
-*.tmp
-.heart*
