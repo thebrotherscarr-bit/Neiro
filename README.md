@@ -1,68 +1,54 @@
-# Manjuel — a Sovereign Steward Engine
+# Neiro — The Estate
 
-A local-only, air-gapped stewardship engine. A sealed heart (**Manjuel**, the
-kernel) that grounds every answer in its own doctrine and never reaches the
-network, and a tender (**Steward**) that perceives, decides, acts, and keeps
-itself honest — two processes, one covenant. Pure Python standard library. No
-install, no cloud, no dependencies.
+Neiro is the Estate as a whole: four parts that run together on one local
+machine, on local models served by Ollama. This repository records which
+version of each part runs with which, and proves them together.
 
-## Run him
+## The four parts
 
-```
-python run.py         # talk to him — he decides for himself what you mean
-python watch.py       # a live dashboard: his integrity, his map, his mind
-```
+| Part | Codename | What it is | Repository |
+|---|---|---|---|
+| Manjuel | the ground | the core: the semantic microkernel, its seats and its record | [thebrotherscarr-bit/Manjuel](https://github.com/thebrotherscarr-bit/Manjuel) |
+| Steward | Steward | the agent, built on the Microsoft Agent Framework | [thebrotherscarr-bit/Steward](https://github.com/thebrotherscarr-bit/Steward) |
+| Jesster | SecondBrain | the console: notes, chat and the door's tools | [thebrotherscarr-bit/Jesster](https://github.com/thebrotherscarr-bit/Jesster) |
+| Aurora | Atlas | the glass: the web app and the line | [thebrotherscarr-bit/Atlas](https://github.com/thebrotherscarr-bit/Atlas) |
 
-Windows: double-click `start.bat` or `watch.bat`.
-macOS / Linux / WSL: `./start.command`, `./watch.command`.
+## What this repository holds
 
-## Prove him
+- `estate.lock.json` — the manifest. For each part: its repository, its
+  version (read from its own source) and the commit that runs with the
+  others. Also the Ollama version, and each model the Estate uses with its
+  digest, size and who uses it. Generated, never written by hand.
+- `tools/estate_lock.py` — the tool that writes and checks the lock
+  (Python 3.13, standard library only). Its tests are in `tests/`.
+- `.github/workflows/estate.yml` — the integration check. It validates the
+  lock, then checks out each part at its locked commit and runs that part's
+  own fast, offline tests. No model, no GPU. Runner images, actions (by full
+  commit SHA), Python, Node and Go are pinned; there is no update bot.
 
-```
-python proofs/prove_all.py
-```
+## Updating the lock
 
-Every faculty shows its work against real data; the agent routes a mixed stream
-himself; and he remembers across a full death and rebirth — his self stays pure.
+From this checkout, with the other parts checked out beside it in the
+ground's usual layout (or named with `--manjuel`, `--steward`, `--jesster`,
+`--aurora`, or `ESTATE_<PART>`):
 
-## What he is
+    python tools/estate_lock.py generate   # writes estate.lock.json from each origin/main
+    python tools/estate_lock.py check      # prints any drift; exit 0
+    python tools/estate_lock.py check --strict   # exit 1 on drift
 
-- **His doctrine is his self.** The four `foundation/` documents are sealed under
-  a covenant hash. Feeding him a paper never changes who he is.
-- **His readings are acquired memory.** Everything he takes in lands on the
-  `shelf/` as testimony — recallable, kept apart, never able to become his self.
-- **He discerns.** Trash, repetition, and injection are refused before anything is
-  filed — repetition is never evidence (Neuro-Core: *Pattern cannot create facts*).
-- **He verifies himself.** `:verify` checks his whole self against a **Merkle DAG**
-  root — the same integrity model git uses. A tamper is provable and pinpointed.
+`generate` reads each checkout's `origin/main` as it is (it never fetches),
+Jesster's latest release tag through `gh`, and Ollama's `/api/version` and
+`/api/tags`. A model the Estate names but Ollama does not have is recorded
+with a null digest and reported.
 
-## What he can do
+## Rules that hold here
 
-Once he is awake, just talk. He sorts what you say himself — a sum, a word to read
-by its roots, a question for his conscience, a document to fold in, a topic to
-recall from what he has read. Type a capability question like *"what can you do?"*
-and he answers plainly. Everything he takes in is judged before it is kept, and
-nothing he reads can ever rewrite who he is.
+- **The Archive never goes on GitHub.** Not a file, a path, a log or a
+  fixture from it, in any branch or bundle. This repository is public.
+- **Versions are recorded, drift is warned.** The lock says what ran
+  together; `check` reports where the machine differs. It never refuses.
+- Keys and `.env` are never committed.
 
-## What git tracks vs. what it ignores
+## Licence
 
-His **code, doctrine, and proofs** are versioned. His **runtime state** — `shelf/`,
-`memory/`, `ledger/`, `weights/`, `strata/` — is his living memory and history, and
-is `.gitignore`d. Commit his self; let his memory grow untracked.
-
-His covenant is the seal over his soul; his Merkle root is the seal over his whole
-body. Between them, "am I still who I was?" is always a question with a provable
-answer.
-
-## License and names
-
-The **code** — the kernel, the steward package, the proofs, the launchers —
-is licensed under the [Apache License 2.0](LICENSE). The **four foundation
-documents** (`foundation/`) are licensed under
-[CC BY-SA 4.0](LICENSE-DOCS): share and adapt them, but derivatives of the
-doctrine must stay open under the same terms.
-
-The names **Manjuel**, **Steward**, and **Neiro** are the
-project's identity and are not granted by either license. A modified fork
-must rename itself — see [TRADEMARKS.md](TRADEMARKS.md). The code is free;
-the name is the seal.
+Apache License 2.0 (`LICENSE`). The names are covered by `TRADEMARKS.md`.
