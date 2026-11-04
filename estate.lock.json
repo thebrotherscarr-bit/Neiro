@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-11-04T20:19:29Z",
+  "generated_at": "2026-11-04T20:33:41Z",
   "parts": {
     "manjuel": {
       "repo": "thebrotherscarr-bit/Manjuel",
       "version": "0.2.6",
-      "commit": "ad2883bc827bd474003a6e30db3e780c61486a8e"
+      "commit": "ff1094e3251b4a50c3afbf83355e321a1ef7a826"
     },
     "steward": {
       "repo": "thebrotherscarr-bit/Steward",
