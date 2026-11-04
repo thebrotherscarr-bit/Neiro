@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-04T20:33:41Z",
+  "generated_at": "2026-11-04T21:25:19Z",
   "parts": {
     "manjuel": {
       "repo": "thebrotherscarr-bit/Manjuel",
@@ -9,14 +9,14 @@
     "steward": {
       "repo": "thebrotherscarr-bit/Steward",
       "version": "0.7.0",
-      "commit": "147887fc92b8470927f9dd59d7575abafb85180f"
+      "commit": "67443a0409ed02232b2dc7a8f16448915ca525ee"
     },
     "jesster": {
       "repo": "thebrotherscarr-bit/Jesster",
       "version": "0.1.0",
-      "commit": "a20b19bfb0b13c46318baf7641ff0cba4a43c4f8",
-      "build": 71,
-      "release": "secondbrain-b71"
+      "commit": "3bee66b9723e2cb9ddf1f6331c80eb3a2eca77cc",
+      "build": 73,
+      "release": "secondbrain-b73"
     },
     "aurora": {
       "repo": "thebrotherscarr-bit/Atlas",
