@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-05T05:31:42Z",
+  "generated_at": "2026-11-05T06:28:40Z",
   "parts": {
     "manjuel": {
       "repo": "thebrotherscarr-bit/Manjuel",
@@ -9,7 +9,7 @@
     "steward": {
       "repo": "thebrotherscarr-bit/Steward",
       "version": "0.7.0",
-      "commit": "1742b4583a10669d1dd90230594fc80f95175feb"
+      "commit": "bf7b61e66aa066ee301c3e0b931b1023d3a8a1c5"
     },
     "jesster": {
       "repo": "thebrotherscarr-bit/Jesster",
