@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-11-04T22:11:11Z",
+  "generated_at": "2026-11-05T01:39:17Z",
   "parts": {
     "manjuel": {
       "repo": "thebrotherscarr-bit/Manjuel",
       "version": "0.2.6",
-      "commit": "ec75fa803dd7d9a0b40649637edaefd82d829b2e"
+      "commit": "c1d2a70c4a8486e811704ea5bbe9f470e9f1d276"
     },
     "steward": {
       "repo": "thebrotherscarr-bit/Steward",
       "version": "0.7.0",
-      "commit": "a1baeae200cc29a10bc5ccf85d37fa4f388dc07e"
+      "commit": "98d54d52912a9e3d099e62a360586b64fc9323f8"
     },
     "jesster": {
       "repo": "thebrotherscarr-bit/Jesster",
       "version": "0.1.0",
-      "commit": "040a64ceeab6ad5356582596fea2a60be30b9c55",
-      "build": 77,
-      "release": "secondbrain-b77"
+      "commit": "8d0480dd6201a59ff1f13128fadb6e1a8f41840a",
+      "build": 81,
+      "release": "secondbrain-b81"
     },
     "aurora": {
       "repo": "thebrotherscarr-bit/Atlas",
       "version": "0.2.6",
-      "commit": "7516d0dc1c090b266c9360947933f1232e854f26"
+      "commit": "c46dcdc25d9fd103b5fda4a607a445d89e63df11"
     }
   },
   "ollama": {
