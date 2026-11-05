@@ -1,5 +1,7 @@
 # Neiro — The Estate
 
+> **Retired as a gate 2026-11-05:** each part's own CI is the gate; the Estate's versions are in Jesster's Estate status. Kept read-only for history.
+
 Neiro is the Estate as a whole: four parts that run together on one local
 machine, on local models served by Ollama. This repository records which
 version of each part runs with which, and proves them together.
